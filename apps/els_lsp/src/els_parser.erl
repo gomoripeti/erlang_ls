@@ -7,6 +7,8 @@
 %% Exports
 %%==============================================================================
 -export([ parse/1
+        , parse_old/1
+        , parse_erlfmt/1
         , parse_file/1
         ]).
 
@@ -20,8 +22,20 @@
 %%==============================================================================
 -spec parse(binary()) -> {ok, [poi()]}.
 parse(Text) ->
+  parse_erlfmt(Text).
+
+parse_old(Text) ->
   IoDevice = els_io_string:new(Text),
   parse_file(IoDevice).
+
+parse_erlfmt(Text) ->
+  String = unicode:characters_to_list(Text),
+  case erlfmt:read_nodes_string("nofile", String) of
+    {ok, Forms, _ErrorInfo} ->
+      {ok, lists:flatten(parse_erlfmt_forms(Forms, String))};
+    {error, _ErrorInfo} = Error ->
+      Error
+  end.
 
 -spec parse_file(file:io_device()) -> {ok, [poi()]}.
 parse_file(IoDevice) ->
@@ -64,6 +78,38 @@ parse_form(IoDevice, StartLocation, Parser, _Options) ->
     {error, _Reason} -> {eof, StartLocation};
     {eof, _EndLocation} = Eof -> Eof
   end.
+
+-spec parse_erlfmt_forms([erlfmt_parse:abstract_form()], string()) -> [[poi()]].
+parse_erlfmt_forms(Forms, Text) ->
+  {ok, Tokens, _} = erl_scan:string(Text, {1, 1}, []),
+  [begin
+     {ok, Pois, _} = parse_erlfmt_form(Form, Tokens),
+     Pois
+   end || Form <- Forms].
+
+-spec parse_erlfmt_form(erlfmt_parse:abstract_form(), [erl_scan:token()])
+                       -> {ok, [[poi()]], any()}.
+parse_erlfmt_form({raw_string, Anno, Text}, _Tokens) ->
+  Start = erlfmt_scan:get_anno(location, Anno),
+  {ok, RangeTokens, EndLocation} = erl_scan:string(Text, Start, []),
+  {ok, find_attribute_tokens(RangeTokens), EndLocation};
+parse_erlfmt_form(Form, Tokens) ->
+  EndLocation = erlfmt_scan:get_anno(end_location, Form),
+  RangeTokens = tokens_in_range(Tokens, Form),
+  Tree = els_erlfmt_ast:erlfmt_to_st(Form),
+  POIs = [ find_attribute_pois(Tree, RangeTokens)
+         , points_of_interest(Tree, EndLocation)
+         ],
+  {ok, POIs, EndLocation}.
+
+-spec tokens_in_range([erl_scan:token()], erlfmt_parse:abstract_form())
+                     -> [erl_scan:token()].
+tokens_in_range(Tokens, Form) ->
+  Start = erlfmt_scan:get_anno(location, Form),
+  End = erlfmt_scan:get_anno(end_location, Form),
+  [T || T <- Tokens,
+        erl_scan:location(T) >= Start,
+        erl_scan:location(T) < End].
 
 %% @doc Find POIs in attributes additionally using tokens to add location info
 %% missing from the syntax tree. Other attributes which don't need tokens are
