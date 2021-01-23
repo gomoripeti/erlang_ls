@@ -7,6 +7,7 @@
 %% Exports
 %%==============================================================================
 -export([ parse/1
+        , parse_erlfmt/1
         , parse_file/1
         ]).
 
@@ -22,6 +23,15 @@
 parse(Text) ->
   IoDevice = els_io_string:new(Text),
   parse_file(IoDevice).
+
+parse_erlfmt(Text) ->
+  String = unicode:characters_to_list(Text),
+  case erlfmt:read_nodes_string("nofile", String) of
+    {ok, Forms, _ErrorInfo} ->
+      {ok, lists:flatten(parse_erlfmt_forms(Forms, String))};
+    {error, _ErrorInfo} = Error ->
+      Error
+  end.
 
 -spec parse_file(file:io_device()) -> {ok, [poi()]}.
 parse_file(IoDevice) ->
@@ -64,6 +74,37 @@ parse_form(IoDevice, StartLocation, Parser, _Options) ->
     {error, _Reason} -> {eof, StartLocation};
     {eof, _EndLocation} = Eof -> Eof
   end.
+
+-spec parse_erlfmt_forms([erlfmt_parse:abstract_form()], string()) -> [[poi()]].
+parse_erlfmt_forms(Forms, Text) ->
+  {ok, Tokens, _} = erl_scan:string(Text, {1, 1}, []),
+  [begin
+     {ok, Pois, _} = parse_erlfmt_form(Form, Tokens),
+     Pois
+   end || Form <- Forms].
+
+-spec parse_erlfmt_form(erlfmt_parse:abstract_form(), [erl_scan:token()])
+                       -> {ok, [[poi()]], any()}.
+parse_erlfmt_form({raw_string, Anno, Text}, _Tokens) ->
+  Start = erlfmt_scan:get_anno(location, Anno),
+  {ok, RangeTokens, EndLocation} = erl_scan:string(Text, Start, []),
+  {ok, find_attribute_tokens(RangeTokens), EndLocation};
+parse_erlfmt_form(Form, Tokens) ->
+  EndLocation = erlfmt_scan:get_anno(end_location, Form),
+  RangeTokens = tokens_in_range(Tokens, Form),
+  POIs = [ find_attribute_pois(Form, RangeTokens)
+         , points_of_interest(Form, EndLocation)
+         ],
+  {ok, POIs, EndLocation}.
+
+-spec tokens_in_range([erl_scan:token()], erlfmt_parse:abstract_form())
+                     -> [erl_scan:token()].
+tokens_in_range(Tokens, Form) ->
+  Start = erlfmt_scan:get_anno(location, Form),
+  End = erlfmt_scan:get_anno(end_location, Form),
+  [T || T <- Tokens,
+        erl_scan:location(T) >= Start,
+        erl_scan:location(T) < End].
 
 %% @doc Find POIs in attributes additionally using tokens to add location info
 %% missing from the syntax tree. Other attributes which don't need tokens are
@@ -151,6 +192,23 @@ analyze_attribute(Tree) ->
     _ ->
       erl_syntax_lib:analyze_attribute(Tree)
   end.
+
+ast_type(Form) ->
+  element(1, Form).
+
+ast_analyze_function(Tree) ->
+  Clauses = ast_function_clauses(Tree),
+  [{F, A}] = [{F, length(Args)}
+              || {clause, _, {call, _, {atom, _, F}, Args}, _, _} <- Clauses],
+  {F, A}.
+
+ast_function_clauses({function, _Anno, Clauses}) ->
+  Clauses.
+
+ast_clause_patterns({clause, _, {Call, _, _Name, Args}, _, _})
+  when Call =:= call;
+       Call =:= macro_call ->
+  Args.
 
 -spec find_compile_options_pois([any()] | tuple(), [erl_scan:token()]) ->
         [poi()].
@@ -402,6 +460,9 @@ record_access(Tree) ->
             []
         end,
       [ poi(erl_syntax:get_pos(Tree), record_expr, Record)
+      Start = erlfmt_scan:get_anno(end_location, Expr),
+      PoiAnno = erlfmt_scan:put_anno(location, Start, RecordNode),
+      [ poi(PoiAnno, record_expr, Record)
       | FieldPoi ];
     _ ->
       []
@@ -585,6 +646,32 @@ subtrees(Tree, function) ->
   [erl_syntax:function_clauses(Tree)];
 subtrees(_Tree, implicit_fun) ->
   [];
+%%-define(ast_type(Tree), element(1, Tree)).
+%%
+%%-spec subtrees(tree()) -> [[tree()]].
+%%subtrees(Tree) when ?ast_type(Tree) =:= application ->
+%%  [erl_syntax:application_arguments(Tree)];
+%%subtrees(Tree) when ?ast_type(Tree) =:= function ->
+%%  [ast_function_clauses(Tree)];
+%%subtrees({clause, _Anno, Head, Guards, Body}) ->
+%%  [ case Head of
+%%      empty -> [];
+%%      _ -> [Head]
+%%    end
+%%  , case Guards of
+%%      empty -> [];
+%%      _ -> [Guards]
+%%    end
+%%  , Body];
+%%subtrees({guard_or, _, GuardAndList}) ->
+%%  [ Exprs || {guard_and, _, Exprs} <- GuardAndList];
+%%subtrees(Tree) when ?ast_type(Tree) =:= implicit_fun ->
+%%  [];
+%%subtrees(Tree) when ?ast_type(Tree) =:=  macro ->
+%%  case erl_syntax:macro_arguments(Tree) of
+%%    none -> [];
+%%    Args -> [Args]
+%%  end;
 subtrees(Tree, macro) ->
   case erl_syntax:macro_arguments(Tree) of
     none -> [];
@@ -610,6 +697,34 @@ subtrees(Tree, record_field) ->
       V ->
        [V]
     end];
+%%
+%%%% record name is an atom node instead of literal atom
+%%
+%%subtrees({record, _, Expr, NameNode, Fields}) ->
+%%  %% record_expr Expr#name{field = value, ...}
+%%  [ [Expr]
+%%  , skip_record_field_atom(NameNode)
+%%  | lists:flatmap(fun subtrees/1, Fields) ];
+%%subtrees({record, _, NameNode, Fields}) ->
+%%  %% record_expr #name{field = value, ...}
+%%  [ skip_record_field_atom(NameNode)
+%%  | lists:flatmap(fun subtrees/1, Fields) ];
+%%subtrees({record_field, _, Expr, NameNode, FieldNode}) ->
+%%  %% record_access Expr#name.field
+%%  [ [Expr]
+%%  , skip_record_field_atom(NameNode)
+%%  , skip_record_field_atom(FieldNode)];
+%%subtrees({record_field, _, NameNode, ValueNode}) ->
+%%  %% record_field { field = value }
+%%  [ skip_record_field_atom(NameNode)
+%%  , [ValueNode] ];
+%%subtrees({record_field, _, NameNode}) ->
+%%  %% record_def_field { field }
+%%  [ skip_record_field_atom(NameNode) ];
+%%subtrees({record_index, _, NameNode, FieldNode}) ->
+%%  [ skip_record_field_atom(NameNode)
+%%  , skip_record_field_atom(FieldNode)];
+
 subtrees(Tree, record_type) ->
   NameNode = erl_syntax:record_type_name(Tree),
   [ skip_record_field_atom(NameNode)
@@ -676,8 +791,8 @@ attribute_subtrees(AttrName, Args) ->
   %% Attribute name not an atom, probably a macro
   [[AttrName], Args].
 
-%% Skip visiting atoms of record field names as they are already represented as
-%% `record_field' pois
+%% Skip visiting atoms of record and record field names as they are already
+%% represented as `record_expr' or `record_field' pois
 -spec skip_record_field_atom(tree()) -> [tree()].
 skip_record_field_atom(NameNode) ->
   case erl_syntax:type(NameNode) of
@@ -690,8 +805,8 @@ skip_record_field_atom(NameNode) ->
 -spec skip_type_name_atom(tree()) -> [tree()].
 skip_type_name_atom(NameNode) ->
   case erl_syntax:type(NameNode) of
-     atom ->
-       [];
+    atom ->
+      [];
     module_qualifier ->
       skip_record_field_atom(erl_syntax:module_qualifier_body(NameNode))
         ++
