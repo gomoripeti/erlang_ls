@@ -5,7 +5,7 @@
  {<<"ephemeral">>,{pkg,<<"ephemeral">>,<<"2.0.4">>},0},
  {<<"erlfmt">>,
   {git,"https://github.com/WhatsApp/erlfmt.git",
-       {ref,"a617b062c21fb95618db948caeb720ad6633236a"}},
+       {ref,"2e93fc4a646111357642b0179a2a63151868d890"}},
   0},
  {<<"getopt">>,{pkg,<<"getopt">>,<<"1.0.1">>},2},
  {<<"jsx">>,{pkg,<<"jsx">>,<<"3.0.0">>},0},
