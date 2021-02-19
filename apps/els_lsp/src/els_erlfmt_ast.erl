@@ -33,6 +33,7 @@
 %% Hence, the erl_syntax:set_pos() function is used for all annotations.
 
 erlfmt_to_st(Node) ->
+  Context = get('$erlfmt_ast_context$'),
     case Node of
         %% ---------------------------------------------------------------------
         %% The following cases can be easily rewritten without losing information
@@ -101,20 +102,88 @@ erlfmt_to_st(Node) ->
         %% Representation for types is in general the same as for
         %% corresponding values. The `type` node is not used at all. This
         %% means new binary operators `|`, `::`, and `..` inside types.
-        %% {attribute, Pos, {atom, _, Tag}, [Def]} when Tag =:= type; Tag =:= opaque ->
-        %%     {op, _OPos, '::', {call, _CPos, {atom, _, Name}, Args}, Type} = Def,
-        %%     %% must ensure plain erl_parse format for these subterms for now
-        %%     %% because of the incomplete handling of -type attrs in erl_syntax
-        %%     Type1 = erl_syntax:revert(erlfmt_to_st(Type)),
-        %%     Args1 = [erl_syntax:revert(erlfmt_to_st(A)) || A <- Args],
-        %%     Attr = {attribute, Pos, type, {Name, Type1, Args1}},
-        %%     erlfmt_to_st_1(Attr);
-        {attribute, Pos, {atom, _, Tag}, [_Def]} when
-            Tag =:= type; Tag =:= opaque; Tag =:= spec; Tag =:= callback
-        ->
-            %% TODO: FIXME - passing types/specs through as raw text for now
-            Text = unicode:characters_to_list(erlfmt:format_nodes([Node], 100)),
-            erlfmt_to_st({raw_string, Pos, "[[reparse]]" ++ Text});
+      {attribute, Pos, {atom, _, Tag} = Name, [Def]} when Tag =:= type; Tag =:= opaque ->
+        put('$erlfmt_ast_context$', type),
+        {op, OPos, '::', {call, _CPos, TypeName, Args}, Type} = Def,
+        Tree =
+          erl_syntax:set_pos(
+            erl_syntax:attribute(erlfmt_to_st(Name),
+                                 [erl_syntax:set_pos(
+                                    erl_syntax:tuple([erlfmt_to_st(TypeName),
+                                                      erlfmt_to_st(Type),
+                                                      erl_syntax:list([erlfmt_to_st(A) || A <- Args])]),
+                                    OPos)]),
+            Pos),
+        erase('$erlfmt_ast_context$'),
+        Tree;
+      {attribute, _Meta, {atom, _, RawName} = Name, Args} when RawName =:= callback;
+                                                               RawName =:= spec ->
+        put('$erlfmt_ast_context$', type),
+        [{spec, SPos, FName, Clauses}] = Args,
+        {spec_clause, _, {args, _, ClauseArgs}, _, _} = hd(Clauses),
+        Arity = length(ClauseArgs),
+        Tree = erl_syntax:attribute(erlfmt_to_st(Name),
+                                    [erl_syntax:set_pos(
+                                       erl_syntax:tuple([erl_syntax:tuple([FName, erl_syntax:integer(Arity)]),
+                                                         erl_syntax:list([erlfmt_to_st(C) || C <- Clauses])]),
+                                       SPos)]),
+        erase('$erlfmt_ast_context$'),
+        Tree;
+      {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], empty} ->
+        erl_syntax:set_pos(
+          erl_syntax:function_type([erlfmt_to_st(A) || A <- Args],
+                                   erlfmt_to_st(ReturnType)),
+          Pos);
+      {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], GuardOr} ->
+        FunctionType =
+          erl_syntax:set_pos(
+            erl_syntax:function_type([erlfmt_to_st(A) || A <- Args],
+                                     erlfmt_to_st(ReturnType)),
+            Pos),
+        FunctionConstraint = erlfmt_guard_to_st(GuardOr),
+
+        erl_syntax:set_pos(
+          erl_syntax:constrained_function_type(FunctionType, [FunctionConstraint]),
+          Pos);
+      {op, Pos, '|', A, B} when Context =:= type ->
+        erl_syntax:set_pos(
+          erl_syntax:type_union([erlfmt_to_st(A),
+                                 erlfmt_to_st(B)]),
+          Pos);
+      {op, Pos, '..', A, B} when Context =:= type ->
+        %% erlfmt_to_st_1({type, Pos, range, [A, B]}),
+        erl_syntax:set_pos(
+          erl_syntax:integer_range_type(erlfmt_to_st(A),
+                                        erlfmt_to_st(B)),
+          Pos);
+      %%{op, Pos, '::', A, B} when Context =:= type ->
+      %%  erl_syntax:set_pos(
+      %%    erl_syntax:annotated_type(erlfmt_to_st(A),
+      %%                              erlfmt_to_st(B)),
+      %%    Pos);
+      {call, Pos, {remote, _, _, _} = Name, Args} when Context =:= type->
+        erl_syntax:set_pos(
+          erl_syntax:type_application(erlfmt_to_st(Name),
+                                      [erlfmt_to_st(A) || A <- Args]),
+          Pos);
+      {call, Pos, Name, Args} when Context =:= type->
+        TypeTag =
+          case Name of
+            {atom, _, NameAtom} ->
+              Arity = length(Args),
+              case erl_internal:is_type(NameAtom, Arity) of
+                true ->
+                  type_application;
+                false ->
+                  user_type_application
+              end;
+            _ ->
+              user_type_application
+          end,
+        erl_syntax:set_pos(
+          erl_syntax:TypeTag(erlfmt_to_st(Name),
+                             [erlfmt_to_st(A) || A <- Args]),
+          Pos);
         {attribute, Pos, {atom, _, define} = Tag, [Name, empty]} ->
             %% the erlfmt parser allows defines with empty bodies (with the
             %% closing parens following after the comma); we must turn the
@@ -319,6 +388,14 @@ erlfmt_to_st(Node) ->
                 FPos
             ),
             erl_syntax:set_pos(erl_syntax:implicit_fun(FName), Pos);
+      {'fun', Pos, type} ->
+        erl_syntax:set_pos(erl_syntax:fun_type(), Pos);
+      {'fun', Pos, {type, _, {args, _, Args}, Res}} ->
+        erl_syntax:set_pos(
+          erl_syntax:function_type(
+            [erlfmt_to_st(A) || A <- Args],
+            erlfmt_to_st(Res)),
+          Pos);
         %% Bit type definitions inside binaries are represented as full nodes
         %% instead of raw atoms and integers. The unit notation `unit:Int` is
         %% represented with a `{remote, Anno, {atom, Anno, unit}, Int}` node.

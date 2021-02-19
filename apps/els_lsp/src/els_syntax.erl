@@ -2,7 +2,7 @@
 
 -export([convert/1]).
 
--export([test/1]).
+-export([test/1, test2/1]).
 
 convert(ASTList) when is_list(ASTList) ->
   convert_list(ASTList);
@@ -106,3 +106,7 @@ test(String) ->
   {ok, Forms, _ErrorInfo} = erlfmt:read_nodes_string("nofile", String),
   [erl_syntax_lib:map(fun(T) -> T end, convert(Form))
    || Form <- Forms].
+
+test2(String) ->
+  {ok, Forms, _ErrorInfo} = erlfmt:read_nodes_string("nofile", String),
+  [els_erlfmt_ast:erlfmt_to_st(Node) || Node <- Forms].
