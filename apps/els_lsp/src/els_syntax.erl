@@ -2,7 +2,10 @@
 
 -export([convert/1]).
 
--export([test/1, test2/1]).
+-export([test_convert/1,
+         test_ast/1,
+         test_dodger/1,
+         test_parser/1]).
 
 convert(ASTList) when is_list(ASTList) ->
   convert_list(ASTList);
@@ -102,11 +105,17 @@ set_meta(Tree, Meta) ->
   %%erl_syntax:set_ann(Tree, maps:to_list(Meta)).
 
 
-test(String) ->
+test_convert(String) ->
   {ok, Forms, _ErrorInfo} = erlfmt:read_nodes_string("nofile", String),
   [erl_syntax_lib:map(fun(T) -> T end, convert(Form))
    || Form <- Forms].
 
-test2(String) ->
+test_ast(String) ->
   {ok, Forms, _ErrorInfo} = erlfmt:read_nodes_string("nofile", String),
   [els_erlfmt_ast:erlfmt_to_st(Node) || Node <- Forms].
+
+test_dodger(String) ->
+  els_dodger:normal_parser(element(2, erl_scan:string(String, {1,1})), []).
+
+test_parser(String) ->
+  erl_parse:parse_form(element(2, erl_scan:string(String, {1,1}))).
