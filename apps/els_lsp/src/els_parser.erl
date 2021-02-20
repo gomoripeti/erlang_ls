@@ -92,8 +92,9 @@ parse_erlfmt_form({raw_string, Anno, Text}, _Tokens) ->
 parse_erlfmt_form(Form, Tokens) ->
   EndLocation = erlfmt_scan:get_anno(end_location, Form),
   RangeTokens = tokens_in_range(Tokens, Form),
-  POIs = [ find_attribute_pois(Form, RangeTokens)
-         , points_of_interest(Form, EndLocation)
+  Tree = els_erlfmt_ast:erlfmt_to_st(Form),
+  POIs = [ find_attribute_pois(Tree, RangeTokens)
+         , points_of_interest(Tree, EndLocation)
          ],
   {ok, POIs, EndLocation}.
 
