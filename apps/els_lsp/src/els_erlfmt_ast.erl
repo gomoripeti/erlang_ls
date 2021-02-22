@@ -104,29 +104,41 @@ erlfmt_to_st(Node) ->
         %% means new binary operators `|`, `::`, and `..` inside types.
       {attribute, Pos, {atom, _, Tag} = Name, [Def]} when Tag =:= type; Tag =:= opaque ->
         put('$erlfmt_ast_context$', type),
-        {op, OPos, '::', {call, _CPos, TypeName, Args}, Type} = Def,
+        {op, OPos, '::', Type, Definition} = Def,
+        {TypeName, Args} =
+          case Type of
+            {call, _CPos, TypeName0, Args0} ->
+              {TypeName0, Args0};
+            {macro_call, CPos, {_, MPos, _} = MacroName, Args0} ->
+              EndLoc = maps:get(end_location, MPos),
+              TypeName0 = {macro_call, CPos#{end_location => EndLoc}, MacroName, none},
+              {TypeName0, Args0}
+          end,
         Tree =
           erl_syntax:set_pos(
             erl_syntax:attribute(erlfmt_to_st(Name),
                                  [erl_syntax:set_pos(
                                     erl_syntax:tuple([erlfmt_to_st(TypeName),
-                                                      erlfmt_to_st(Type),
+                                                      erlfmt_to_st(Definition),
                                                       erl_syntax:list([erlfmt_to_st(A) || A <- Args])]),
                                     OPos)]),
             Pos),
         erase('$erlfmt_ast_context$'),
         Tree;
-      {attribute, _Meta, {atom, _, RawName} = Name, Args} when RawName =:= callback;
-                                                               RawName =:= spec ->
+      {attribute, Pos, {atom, _, RawName} = Name, Args} when RawName =:= callback;
+                                                             RawName =:= spec ->
         put('$erlfmt_ast_context$', type),
         [{spec, SPos, FName, Clauses}] = Args,
         {spec_clause, _, {args, _, ClauseArgs}, _, _} = hd(Clauses),
         Arity = length(ClauseArgs),
-        Tree = erl_syntax:attribute(erlfmt_to_st(Name),
-                                    [erl_syntax:set_pos(
-                                       erl_syntax:tuple([erl_syntax:tuple([FName, erl_syntax:integer(Arity)]),
-                                                         erl_syntax:list([erlfmt_to_st(C) || C <- Clauses])]),
+        Tree =
+          erl_syntax:set_pos(
+            erl_syntax:attribute(erlfmt_to_st(Name),
+                                 [erl_syntax:set_pos(
+                                    erl_syntax:tuple([erl_syntax:tuple([FName, erl_syntax:integer(Arity)]),
+                                                      erl_syntax:list([erlfmt_to_st(C) || C <- Clauses])]),
                                        SPos)]),
+            Pos),
         erase('$erlfmt_ast_context$'),
         Tree;
       {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], empty} ->
