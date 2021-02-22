@@ -120,32 +120,11 @@ find_attribute_pois(Tree, Tokens) ->
   case erl_syntax:type(Tree) of
     attribute ->
       try analyze_attribute(Tree) of
-        {export, Exports} ->
-          %% The first atom is the attribute name, so we skip it.
-          [_|Atoms] = [T || {atom, _, _} = T <- Tokens],
-          ExportEntries =
-            [ poi(Pos, export_entry, {F, A})
-              || {{F, A}, {atom, Pos, _}} <- lists:zip(Exports, Atoms)
-            ],
-          [find_attribute_tokens(Tokens), ExportEntries];
-        {import, {M, Imports}} ->
-          %% The first two atoms are the attribute name and the imported
-          %% module, so we skip them.
-          [_, _|Atoms] = [T || {atom, _, _} = T <- Tokens],
-          [ poi(Pos, import_entry, {M, F, A})
-            || {{F, A}, {atom, Pos, _}} <- lists:zip(Imports, Atoms)];
         {spec, {spec, {{F, A}, _FTs}}} ->
-          From = erl_syntax:get_pos(Tree),
+          From = get_start_location(Tree),
           To   = erl_scan:location(lists:last(Tokens)),
           Data = pretty_print(Tree),
           [poi({From, To}, spec, {F, A}, Data)];
-        {export_type, {export_type, Exports}} ->
-          [_ | Atoms] = [T || {atom, _, _} = T <- Tokens],
-          ExportTypeEntries =
-            [ poi(Pos, export_type_entry, {F, A})
-              || {{F, A}, {atom, Pos, _}} <- lists:zip(Exports, Atoms)
-            ],
-          [find_attribute_tokens(Tokens), ExportTypeEntries];
         {compile, {compile, CompileOpts}} ->
           find_compile_options_pois(CompileOpts, Tokens);
         _ -> []
@@ -185,35 +164,46 @@ analyze_attribute(Tree) ->
       [ArgTuple] = erl_syntax:attribute_arguments(Tree),
       [TypeTree, _, ArgsListTree] = erl_syntax:tuple_elements(ArgTuple),
       Definition = [], %% ignore definition
-      %% concrete will throw an error if `TyperTree' is a macro
-      try erl_syntax:concrete(TypeTree) of
-        TypeName ->
-          {AttrName, {AttrName, {TypeName,
-                                 Definition,
-                                 erl_syntax:list_elements(ArgsListTree)}}}
-      catch _:_ ->
+      {AttrName, {AttrName, {TypeTree,
+                             Definition,
+                             erl_syntax:list_elements(ArgsListTree)}}};
+    AttrName when AttrName =:= export;
+                  AttrName =:= export_type ->
+      case erl_syntax:attribute_arguments(Tree) of
+        [Args] ->
+          {AttrName, erl_syntax:list_elements(Args)};
+        _ ->
+          throw(syntax_error)
+      end;
+    import ->
+      case erl_syntax:attribute_arguments(Tree) of
+        [M] ->
+          {import, M};
+        [M, L] ->
+          {import, {M, erl_syntax:list_elements(L)}};
+        _ ->
           throw(syntax_error)
       end;
     _ ->
       erl_syntax_lib:analyze_attribute(Tree)
   end.
 
-ast_type(Form) ->
-  element(1, Form).
-
-ast_analyze_function(Tree) ->
-  Clauses = ast_function_clauses(Tree),
-  [{F, A}] = [{F, length(Args)}
-              || {clause, _, {call, _, {atom, _, F}, Args}, _, _} <- Clauses],
-  {F, A}.
-
-ast_function_clauses({function, _Anno, Clauses}) ->
-  Clauses.
-
-ast_clause_patterns({clause, _, {Call, _, _Name, Args}, _, _})
-  when Call =:= call;
-       Call =:= macro_call ->
-  Args.
+%%ast_type(Form) ->
+%%  element(1, Form).
+%%
+%%ast_analyze_function(Tree) ->
+%%  Clauses = ast_function_clauses(Tree),
+%%  [{F, A}] = [{F, length(Args)}
+%%              || {clause, _, {call, _, {atom, _, F}, Args}, _, _} <- Clauses],
+%%  {F, A}.
+%%
+%%ast_function_clauses({function, _Anno, Clauses}) ->
+%%  Clauses.
+%%
+%%ast_clause_patterns({clause, _, {Call, _, _Name, Args}, _, _})
+%%  when Call =:= call;
+%%       Call =:= macro_call ->
+%%  Args.
 
 -spec find_compile_options_pois([any()] | tuple(), [erl_scan:token()]) ->
         [poi()].
@@ -351,6 +341,38 @@ attribute(Tree) ->
       [poi(Pos, module, Module)];
     {module, Module} ->
       [poi(Pos, module, Module)];
+    {AttrName, Exports} when AttrName =:= export;
+                             AttrName =:= export_type ->
+      EntryPoiKind = case AttrName of
+                       export      -> export_entry;
+                       export_type -> export_type_entry
+                     end,
+      ExportEntries =
+        [ try erl_syntax_lib:analyze_function_name(FATree) of
+            {F, A} ->
+              poi(erl_syntax:get_pos(FATree), EntryPoiKind, {F, A})
+          catch throw:syntax_error ->
+              []
+          end
+          || FATree <- Exports
+        ],
+      [ poi(erl_syntax:get_pos(Tree), AttrName, get_start_location(Tree))
+      | lists:flatten(ExportEntries) ];
+    {import, {ModTree, Imports}} ->
+      case erl_syntax:type(ModTree) of
+        atom ->
+          M = erl_syntax:atom_value(ModTree),
+          [ try erl_syntax_lib:analyze_function_name(FATree) of
+              {F, A} ->
+                poi(erl_syntax:get_pos(FATree), import_entry, {M, F, A})
+            catch throw:syntax_error ->
+                []
+            end
+            || FATree <- Imports
+          ];
+        _ ->
+          []
+      end;
     preprocessor ->
       Name = erl_syntax:atom_value(erl_syntax:attribute_name(Tree)),
       case {Name, erl_syntax:attribute_arguments(Tree)} of
@@ -365,14 +387,15 @@ attribute(Tree) ->
       end;
     {record, {Record, Fields}} ->
       [poi(Pos, record, Record, Fields) | record_def_fields(Tree, Record)];
-    {type, {type, {Type, _, Args}}} ->
-      {Line, Col} = Pos,
-      [poi({Line, Col + length("type ")}, type_definition,
-           {Type, length(Args)}, type_args(Args))];
-    {opaque, {opaque, {Type, _, Args}}} ->
-      {Line, Col} = Pos,
-      [poi({Line, Col + length("opaque ")}, type_definition,
-           {Type, length(Args)}, type_args(Args))];
+    {AttrName, {AttrName, {Type, _, Args}}} when AttrName =:= type;
+                                                 AttrName =:= opaque ->
+      case erl_syntax:type(Type) of
+        atom ->
+          [poi(erl_syntax:get_pos(Type), type_definition,
+               {erl_syntax:atom_value(Type), length(Args)}, type_args(Args))];
+        _ ->
+          []
+      end;
     _ ->
       []
   catch throw:syntax_error ->
@@ -400,7 +423,7 @@ function(Tree, {EndLine, _} = _EndLocation) ->
                      )
                   || {I, Clause} <- IndexedClauses],
   Args = function_args(hd(Clauses), A),
-  {StartLine, _} = StartLocation = erl_syntax:get_pos(Tree),
+  {StartLine, _} = StartLocation = get_start_location(Tree),
   %% It only makes sense to fold a function if the function contains
   %% at least one line apart from its signature.
   FoldingRanges = case EndLine - StartLine > 1 of
@@ -464,8 +487,7 @@ record_access(Tree) ->
           _    ->
             []
         end,
-      [ poi(erl_syntax:get_pos(Tree), record_expr, Record)
-      Start = erlfmt_scan:get_anno(end_location, Expr),
+      Start = erlfmt_scan:get_anno(end_location, Tree),
       PoiAnno = erlfmt_scan:put_anno(location, Start, RecordNode),
       [ poi(PoiAnno, record_expr, Record)
       | FieldPoi ];
@@ -844,3 +866,10 @@ pretty_print_clause(Tree) ->
                                 , PrettyGuard
                                 ]),
   els_utils:to_binary(PrettyClause).
+
+get_start_location(Tree) ->
+  get_anno(location, Tree).
+
+get_anno(Key, Tree) ->
+  Anno = erl_syntax:get_pos(Tree),
+  maps:get(Key, Anno).
