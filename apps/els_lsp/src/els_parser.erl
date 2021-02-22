@@ -64,21 +64,15 @@ parse_forms(Forms, Text) ->
                        -> {ok, deep_list(poi()), any()}.
 parse_form({raw_string, Anno, Text}, _Tokens) ->
   Start = erlfmt_scan:get_anno(location, Anno),
-  {ok, RangeTokens, EndLocation} = erl_scan:string(Text, Start, []),
-  {ok, find_attribute_tokens(RangeTokens), EndLocation};
+  {ok, RangeTokens, _EndLocation} = erl_scan:string(Text, Start, []),
+  {ok, find_attribute_tokens(RangeTokens)};
 parse_form(Form, Tokens) ->
-  %% TMP simulate EndLocation from erl_scan:tokens which is the next character
-  %% of Text after a dot and whitespace (which terminates a form by definition)
-  %% erlfmt_parse sets end_location of a form by just incrementing the column of
-  %% the final dot (ie keeps the same line)
-  {EndLine, _} = erlfmt_scan:get_anno(end_location, Form),
-  EndLocation = {EndLine + 1, 1},
   RangeTokens = tokens_in_range(Tokens, Form),
   Tree = els_erlfmt_ast:erlfmt_to_st(Form),
   POIs = [ find_attribute_pois(Tree, RangeTokens)
-         , points_of_interest(Tree, EndLocation)
+         , points_of_interest(Tree)
          ],
-  {ok, POIs, EndLocation}.
+  {ok, POIs}.
 
 -spec tokens_in_range([erl_scan:token()], erlfmt_parse:abstract_form())
                      -> [erl_scan:token()].
@@ -204,19 +198,19 @@ find_attribute_tokens([ {'-', Anno}, {atom, _, spec} | [_|_] = Rest]) ->
 find_attribute_tokens(_) ->
   [].
 
--spec points_of_interest(tree(), erl_anno:location()) -> [[poi()]].
-points_of_interest(Tree, EndLocation) ->
-  FoldFun = fun(T, Acc) -> [do_points_of_interest(T, EndLocation) | Acc] end,
+-spec points_of_interest(tree()) -> [[poi()]].
+points_of_interest(Tree) ->
+  FoldFun = fun(T, Acc) -> [do_points_of_interest(T) | Acc] end,
   fold(FoldFun, [], Tree).
 
 %% @doc Return the list of points of interest for a given `Tree'.
--spec do_points_of_interest(tree(), erl_anno:location()) -> [poi()].
-do_points_of_interest(Tree, EndLocation) ->
+-spec do_points_of_interest(tree()) -> [poi()].
+do_points_of_interest(Tree) ->
   try
     case erl_syntax:type(Tree) of
       application   -> application(Tree);
       attribute     -> attribute(Tree);
-      function      -> function(Tree, EndLocation);
+      function      -> function(Tree);
       implicit_fun  -> implicit_fun(Tree);
       macro         -> macro(Tree);
       record_access -> record_access(Tree);
@@ -389,12 +383,14 @@ type_args(Args) ->
     || {N, T} <- lists:zip(lists:seq(1, length(Args)), Args)
   ].
 
--spec function(tree(), erl_anno:location()) -> [poi()].
-function(Tree, {EndLine, _} = _EndLocation) ->
+-spec function(tree()) -> [poi()].
+function(Tree) ->
   {F, A} = erl_syntax_lib:analyze_function(Tree),
   Clauses = erl_syntax:function_clauses(Tree),
   IndexedClauses = lists:zip(lists:seq(1, length(Clauses)), Clauses),
-  ClausesPOIs = [ poi( erl_syntax:get_pos(Clause)
+  %% FIXME function_clause range should be the range of the name atom
+  %% however that is not present in the clause Tree (it is in the erlfmt_parse node)
+  ClausesPOIs = [ poi( get_start_location(Clause)
                      , function_clause
                      , {F, A, I}
                      , pretty_print_clause(Clause)
@@ -402,12 +398,13 @@ function(Tree, {EndLine, _} = _EndLocation) ->
                   || {I, Clause} <- IndexedClauses],
   Args = function_args(hd(Clauses), A),
   {StartLine, _} = StartLocation = get_start_location(Tree),
+  {EndLine, _} = get_end_location(Tree),
   %% It only makes sense to fold a function if the function contains
   %% at least one line apart from its signature.
-  FoldingRanges = case EndLine - StartLine > 1 of
+  FoldingRanges = case EndLine > StartLine of
                     true ->
                       Range = #{ from => {StartLine, ?END_OF_LINE}
-                               , to   => {EndLine - 1, ?END_OF_LINE}
+                               , to   => {EndLine, ?END_OF_LINE}
                                },
                       [ els_poi:new(Range, folding_range, StartLocation) ];
                     false ->
@@ -841,6 +838,10 @@ attribute_start_location(Anno) ->
 get_start_location(Tree) ->
   get_anno(location, erl_syntax:get_pos(Tree)).
 
+-spec get_end_location(tree()) -> erl_anno:location().
+get_end_location(Tree) ->
+  get_anno(end_location, erl_syntax:get_pos(Tree)).
+
 -spec get_anno(atom(), erl_anno:anno() | map()) -> term().
 get_anno(location, Anno) when is_map(Anno) ->
   case maps:is_key(pre_comments, Anno) of
@@ -848,6 +849,13 @@ get_anno(location, Anno) when is_map(Anno) ->
       maps:get(inner_location, Anno);
     false ->
       maps:get(location, Anno)
+  end;
+get_anno(end_location, Anno) when is_map(Anno) ->
+  case maps:is_key(post_comments, Anno) of
+    true ->
+      maps:get(inner_end_location, Anno);
+    false ->
+      maps:get(end_location, Anno)
   end;
 get_anno(location, Anno) ->
   erl_anno:location(Anno).
