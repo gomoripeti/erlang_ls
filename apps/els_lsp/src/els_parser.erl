@@ -7,6 +7,7 @@
 %% Exports
 %%==============================================================================
 -export([ parse/1
+        , parse_old/1
         , parse_erlfmt/1
         , parse_file/1
         ]).
@@ -21,6 +22,9 @@
 %%==============================================================================
 -spec parse(binary()) -> {ok, [poi()]}.
 parse(Text) ->
+  parse_erlfmt(Text).
+
+parse_old(Text) ->
   IoDevice = els_io_string:new(Text),
   parse_file(IoDevice).
 
