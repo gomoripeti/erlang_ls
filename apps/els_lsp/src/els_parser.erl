@@ -490,8 +490,9 @@ record_access(Tree) ->
           _    ->
             []
         end,
-      Start = erlfmt_scan:get_anno(end_location, Tree),
-      PoiAnno = erlfmt_scan:put_anno(location, Start, RecordNode),
+      Start = get_start_location(Tree),
+      Anno = erl_syntax:get_pos(RecordNode),
+      PoiAnno = set_start_location(Start, Anno),
       [ poi(PoiAnno, record_expr, Record)
       | FieldPoi ];
     _ ->
@@ -879,3 +880,9 @@ get_end_location(Tree) ->
 get_anno(Key, Tree) ->
   Anno = erl_syntax:get_pos(Tree),
   maps:get(Key, Anno).
+
+set_start_location(Start, Anno) ->
+  set_anno(location, Start, Anno).
+
+set_anno(Key, Value, Anno) ->
+  Anno#{Key => Value}.
