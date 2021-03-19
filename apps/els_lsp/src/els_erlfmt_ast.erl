@@ -173,6 +173,31 @@ erlfmt_to_st(Node) ->
       %%    erl_syntax:annotated_type(erlfmt_to_st(A),
       %%                              erlfmt_to_st(B)),
       %%    Pos);
+      {record, Pos, Name, Fields} when Context =:= type ->
+        %% The record name is represented as node instead of a raw atom
+        %% and typed record fields are represented as '::' ops
+        Fields1 = [
+                   case F of
+                     {op, FPos, '::', B, T} ->
+                       B1 = erlfmt_to_st(B),
+                       T1 = erlfmt_to_st(T),
+                       erl_syntax:set_pos(
+                         erl_syntax:record_type_field(B1, T1),
+                         FPos
+                        );
+                     _ ->
+                       erlfmt_to_st(F)
+                   end
+                   || F <- Fields
+                  ],
+
+        erl_syntax:set_pos(
+          erl_syntax:record_type(
+            erlfmt_to_st(Name),
+            Fields1
+           ),
+          Pos
+         );
       {call, Pos, {remote, _, _, _} = Name, Args} when Context =:= type->
         erl_syntax:set_pos(
           erl_syntax:type_application(erlfmt_to_st(Name),
