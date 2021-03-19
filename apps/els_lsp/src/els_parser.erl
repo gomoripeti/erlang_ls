@@ -8,8 +8,10 @@
 %%==============================================================================
 -export([ parse/1
         , parse_old/1
-        , parse_erlfmt/1
         , parse_file/1
+        , parse_erlfmt/1
+        , parse_file_erlfmt/1
+        , parse_text/1
         ]).
 
 %%==============================================================================
@@ -42,6 +44,25 @@ parse_file(IoDevice) ->
   {ok, NestedPOIs} = els_dodger:parse(IoDevice, {1, 1}, fun parse_form/3, []),
   ok = file:close(IoDevice),
   {ok, lists:flatten(NestedPOIs)}.
+
+-spec parse_file_erlfmt(file:name_all()) -> {ok, [tree()]} | {error, term()}.
+parse_file_erlfmt(FileName) ->
+  forms_to_ast(erlfmt:read_nodes(FileName)).
+
+-spec parse_text(binary()) -> {ok, [tree()]} | {error, term()}.
+parse_text(Text) ->
+  String = unicode:characters_to_list(Text),
+  forms_to_ast(
+    erlfmt:read_nodes_string("nofile", String)).
+
+-spec forms_to_ast(tuple()) -> {ok, [tree()]} | {error, term()}.
+forms_to_ast({ok, Forms, _ErrorInfo}) ->
+  TreeList =
+    [els_erlfmt_ast:erlfmt_to_st(Form)
+     || Form <- Forms],
+  {ok, TreeList};
+forms_to_ast({error, _ErrorInfo} = Error) ->
+  Error.
 
 %%==============================================================================
 %% Internal Functions
