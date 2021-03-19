@@ -136,8 +136,22 @@ range({Line, Column}, type_definition, {Name, _}, _Data) ->
 %%  To = plus(From, atom_to_list(Name)),
 %%  #{ from => From, to => To };
 range(Anno, _Type, _Id, _Data) when is_map(Anno) ->
-  From = maps:get(location, Anno),
-  To = maps:get(end_location, Anno),
+  %% Recommenting can modify the start and end locations of certain trees
+  %% see erlfmt_recomment:put_(pre|post)_comments/1
+  From =
+    case maps:is_key(pre_comments, Anno) of
+      true ->
+        maps:get(inner_location, Anno);
+      false ->
+        maps:get(location, Anno)
+    end,
+  To =
+    case maps:is_key(post_comments, Anno) of
+      true ->
+        maps:get(inner_end_location, Anno);
+      false ->
+        maps:get(end_location, Anno)
+    end,
   #{ from => From, to => To }.
 
 
