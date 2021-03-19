@@ -308,13 +308,16 @@ application_mfa(Tree) ->
           Operator = erl_syntax:application_operator(Tree),
           Pos = case erl_syntax:type(Operator) of
                     module_qualifier ->
+                    %% FIXME erlfmt: end_location should be that of the operator
                         erl_syntax:get_pos(
                           erl_syntax:module_qualifier_argument(Operator));
                     _ ->
                         erl_syntax:get_pos(Tree)
                 end,
           {{M, F, A}, Pos};
-    {F, A} -> {{F, A}, erl_syntax:get_pos(Tree)};
+    {F, A} ->
+      Pos = erl_syntax:get_pos(erl_syntax:application_operator(Tree)),
+      {{F, A}, Pos};
     A when is_integer(A) ->
       %% If the function is not explicitly named (e.g. a variable is
       %% used as the module qualifier or the function name), only the
@@ -340,6 +343,7 @@ application_with_variable(Operator, A) ->
     {macro, atom} ->
       ModuleName   = node_name(Module),
       FunctionName = node_name(Function),
+      %% FIXME erlfmt: end_location should be that of the operator
       case {ModuleName, FunctionName} of
         {'MODULE', F} -> {{F, A}, erl_syntax:get_pos(Module)};
         _ -> undefined
