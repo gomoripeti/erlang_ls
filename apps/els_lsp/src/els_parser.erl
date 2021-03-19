@@ -141,11 +141,6 @@ find_attribute_pois(Tree, Tokens) ->
   case erl_syntax:type(Tree) of
     attribute ->
       try analyze_attribute(Tree) of
-        {spec, {spec, {{F, A}, _FTs}}} ->
-          From = get_start_location(Tree),
-          To   = erl_scan:location(lists:last(Tokens)),
-          Data = pretty_print(Tree),
-          [poi({From, To}, spec, {F, A}, Data)];
         {compile, {compile, CompileOpts}} ->
           find_compile_options_pois(CompileOpts, Tokens);
         _ -> []
@@ -349,21 +344,34 @@ application_with_variable(Operator, A) ->
 -spec attribute(tree()) -> [poi()].
 attribute(Tree) ->
   Pos = erl_syntax:get_pos(Tree),
-  try analyze_attribute(Tree) of
+  try {attribute_name_atom(Tree), erl_syntax:attribute_arguments(Tree)} of
     %% Yes, Erlang allows both British and American spellings for
     %% keywords.
-    {behavior, {behavior, Behaviour}} ->
-      [poi(Pos, behaviour, Behaviour)];
-    {behaviour, {behaviour, Behaviour}} ->
-      [poi(Pos, behaviour, Behaviour)];
-    {callback, {callback, {{F, A}, _}}} ->
-      [poi(Pos, callback, {F, A})];
-    {module, {Module, _Args}} ->
-      [poi(Pos, module, Module)];
-    {module, Module} ->
-      [poi(Pos, module, Module)];
-    {AttrName, Exports} when AttrName =:= export;
-                             AttrName =:= export_type ->
+    {AttrName, [Arg]} when AttrName =:= behaviour;
+                           AttrName =:= behavior ->
+      case is_atom_node(Arg) of
+        {true, Behaviour} ->
+          [poi(Pos, behaviour, Behaviour)];
+        false ->
+          []
+      end;
+    {module, [Module, _Args]} ->
+      case is_atom_node(Module) of
+        {true, ModuleName} ->
+          [poi(erl_syntax:get_pos(Module), module, ModuleName)];
+        _ ->
+          []
+      end;
+    {module, [Module]} ->
+      case is_atom_node(Module) of
+        {true, ModuleName} ->
+          [poi(erl_syntax:get_pos(Module), module, ModuleName)];
+        _ ->
+          []
+      end;
+    {AttrName, [Arg]} when AttrName =:= export;
+                           AttrName =:= export_type ->
+      Exports = erl_syntax:list_elements(Arg),
       EntryPoiKind = case AttrName of
                        export      -> export_entry;
                        export_type -> export_type_entry
@@ -379,10 +387,10 @@ attribute(Tree) ->
         ],
       [ poi(erl_syntax:get_pos(Tree), AttrName, get_start_location(Tree))
       | lists:flatten(ExportEntries) ];
-    {import, {ModTree, Imports}} ->
-      case erl_syntax:type(ModTree) of
-        atom ->
-          M = erl_syntax:atom_value(ModTree),
+    {import, [ModTree, ImportList]} ->
+      case is_atom_node(ModTree) of
+        {true, M} ->
+          Imports = erl_syntax:list_elements(ImportList),
           [ try erl_syntax_lib:analyze_function_name(FATree) of
               {F, A} ->
                 poi(erl_syntax:get_pos(FATree), import_entry, {M, F, A})
@@ -394,28 +402,63 @@ attribute(Tree) ->
         _ ->
           []
       end;
-    preprocessor ->
-      Name = erl_syntax:atom_value(erl_syntax:attribute_name(Tree)),
-      case {Name, erl_syntax:attribute_arguments(Tree)} of
-        {define, [Define|_]} ->
-          [poi(Pos, define, define_name(Define))];
-        {include, [String]} ->
-          [poi(Pos, include, erl_syntax:string_value(String))];
-        {include_lib, [String]} ->
-          [poi(Pos, include_lib, erl_syntax:string_value(String))];
+    {define, [Define|_]} ->
+      DefinePos = case erl_syntax:type(Define) of
+                    application ->
+                      Operator = erl_syntax:application_operator(Define),
+                      erl_syntax:get_pos(Operator);
+                    _ ->
+                      erl_syntax:get_pos(Define)
+                  end,
+      [poi(DefinePos, define, define_name(Define))];
+    {include, [String]} ->
+      [poi(Pos, include, erl_syntax:string_value(String))];
+    {include_lib, [String]} ->
+      [poi(Pos, include_lib, erl_syntax:string_value(String))];
+    {record, [Record, Fields]} ->
+      case is_atom_node(Record) of
+        {true, RecordName} ->
+          %% FIXME clean FieldList up -> analyze_record_fields
+          FieldList =
+            lists:flatten(
+              [case erl_syntax:type(F) of
+                 record_field ->
+                   FieldName = erl_syntax:record_field_name(F),
+                   {erl_syntax:atom_value(FieldName), erl_syntax:record_field_value(F)};
+                 typed_record_field ->
+                   FF = erl_syntax:typed_record_field_body(F),
+                   FieldName = erl_syntax:record_field_name(FF),
+                   {erl_syntax:atom_value(FieldName), erl_syntax:record_field_value(FF)}
+               end
+               || F <- erl_syntax:tuple_elements(Fields)]),
+          [poi(erl_syntax:get_pos(Record), record, RecordName, FieldList)
+          | record_def_fields(Tree, RecordName)];
         _ ->
           []
       end;
-    {record, {Record, Fields}} ->
-      [poi(Pos, record, Record, Fields) | record_def_fields(Tree, Record)];
-    {AttrName, {AttrName, {Type, _, Args}}} when AttrName =:= type;
-                                                 AttrName =:= opaque ->
-      case erl_syntax:type(Type) of
-        atom ->
+    {AttrName, [ArgTuple]} when AttrName =:= type;
+                                AttrName =:= opaque ->
+      [Type, _, ArgsListTree] = erl_syntax:tuple_elements(ArgTuple),
+      TypeArgs = erl_syntax:list_elements(ArgsListTree),
+      case is_atom_node(Type) of
+        {true, TypeName} ->
           [poi(erl_syntax:get_pos(Type), type_definition,
-               {erl_syntax:atom_value(Type), length(Args)}, type_args(Args))];
+               {TypeName, length(TypeArgs)}, type_args(TypeArgs))];
         _ ->
           []
+      end;
+    {AttrName, [ArgTuple]} when AttrName =:= callback;
+                                AttrName =:= spec ->
+      [FATree | _] = erl_syntax:tuple_elements(ArgTuple),
+      %% concrete will throw an error if `FATRee' contains any macro
+      try erl_syntax:concrete(FATree) of
+        {F, A} ->
+          PoiKind = AttrName,
+          %% [FTree, _] = erl_syntax:tuple_elements(FATree),
+          %% SpecNamePos = erl_syntax:get_pos(FTree)
+          [poi(erl_syntax:get_pos(Tree), PoiKind, {F, A})]
+      catch _:_ ->
+          throw(syntax_error)
       end;
     _ ->
       []
@@ -656,6 +699,15 @@ node_name(Tree) ->
       '_'
   end.
 
+-spec is_atom_node(tree()) -> {true, atom()} | false.
+is_atom_node(Tree) ->
+  case erl_syntax:type(Tree) of
+    atom ->
+      {true, erl_syntax:atom_value(Tree)};
+    _ ->
+      false
+  end.
+
 -spec poi(pos() | {pos(), pos()}, poi_kind(), any()) -> poi().
 poi(Pos, Kind, Id) ->
   poi(Pos, Kind, Id, undefined).
@@ -827,7 +879,11 @@ attribute_subtrees(record, [_RecordName, FieldsTuple]) ->
   [[FieldsTuple]];
 attribute_subtrees(import, [Mod, Imports]) ->
   [ skip_record_field_atom(Mod)
-  , [Imports]];
+  , skip_function_entries(Imports) ];
+attribute_subtrees(AttrName, [Exports])
+  when AttrName =:= export;
+       AttrName =:= export_type ->
+  [ skip_function_entries(Exports) ];
 attribute_subtrees(define, [_Name | Definition]) ->
   %% The definition can contain commas, in which case it will look like as if
   %% the attribute would have more than two arguments. Eg.: `-define(M, a, b).'
@@ -836,12 +892,55 @@ attribute_subtrees(AttrName, _)
   when AttrName =:= include;
        AttrName =:= include_lib ->
   [];
+attribute_subtrees(AttrName, [ArgTuple])
+  when AttrName =:= callback;
+       AttrName =:= spec ->
+  case erl_syntax:type(ArgTuple) of
+    tuple ->
+      [FATree | Rest] = erl_syntax:tuple_elements(ArgTuple),
+      %% concrete will throw an error if `FATRee' contains any macro
+      [ try erl_syntax:concrete(FATree) of
+          {_, _} -> []
+        catch
+          _:_ -> [FATree]
+        end
+      , Rest ];
+    _ ->
+      [[ArgTuple]]
+  end;
+attribute_subtrees(AttrName, [ArgTuple])
+  when AttrName =:= type;
+       AttrName =:= opaque ->
+  case erl_syntax:type(ArgTuple) of
+    tuple ->
+      [Type | Rest] = erl_syntax:tuple_elements(ArgTuple),
+      [skip_record_field_atom(Type), Rest];
+    _ ->
+      [ArgTuple]
+  end;
 attribute_subtrees(AttrName, Args)
   when is_atom(AttrName) ->
       [Args];
 attribute_subtrees(AttrName, Args) ->
   %% Attribute name not an atom, probably a macro
   [[AttrName], Args].
+
+%% Skip visiting atoms of import/export entries
+-spec skip_function_entries(tree()) -> [tree()].
+skip_function_entries(FunList) ->
+  case erl_syntax:type(FunList) of
+    list ->
+      lists:filter(
+        fun(FATree) ->
+            try erl_syntax_lib:analyze_function_name(FATree) of
+              {_, _} -> false
+            catch
+              throw:syntax_error -> true
+            end
+        end, erl_syntax:list_elements(FunList));
+    _ ->
+      [FunList]
+  end.
 
 %% Skip visiting atoms of record and record field names as they are already
 %% represented as `record_expr' or `record_field' pois
@@ -866,14 +965,6 @@ skip_type_name_atom(NameNode) ->
      _ ->
        [NameNode]
    end.
--spec pretty_print(tree()) -> binary().
-pretty_print(Tree) ->
-  try
-    els_utils:to_binary(erl_prettypr:format(Tree))
- catch
-   _:_:_ ->
-     <<>>
- end.
 
 -spec pretty_print_clause(tree()) -> binary().
 pretty_print_clause(Tree) ->
