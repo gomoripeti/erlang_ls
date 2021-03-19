@@ -267,7 +267,7 @@ application(Tree) ->
   case application_mfa(Tree) of
     undefined -> [];
     {F, A} ->
-      Pos = erl_syntax:get_pos(Tree),
+      Pos = erl_syntax:get_pos(erl_syntax:application_operator(Tree)),
       case erl_internal:bif(F, A) of
         %% Call to a function from the `erlang` module
         true -> [poi(Pos, application, {erlang, F, A}, #{imported => true})];
@@ -275,7 +275,8 @@ application(Tree) ->
         false -> [poi(Pos, application, {F, A})]
       end;
     MFA ->
-      [poi(erl_syntax:get_pos(Tree), application, MFA)]
+      Pos = erl_syntax:get_pos(erl_syntax:application_operator(Tree)),
+      [poi(Pos, application, MFA)]
   end.
 
 -spec application_mfa(tree()) ->
