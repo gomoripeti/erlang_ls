@@ -98,31 +98,10 @@ find_attribute_pois(Tree, Tokens) ->
   case erl_syntax:type(Tree) of
     attribute ->
       try analyze_attribute(Tree) of
-        {export, Exports} ->
-          %% The first atom is the attribute name, so we skip it.
-          [_|Atoms] = [T || {atom, _, _} = T <- Tokens],
-          ExportEntries =
-            [ poi(Pos, export_entry, {F, A})
-              || {{F, A}, {atom, Pos, _}} <- lists:zip(Exports, Atoms)
-            ],
-          [find_attribute_tokens(Tokens), ExportEntries];
-        {import, {M, Imports}} ->
-          %% The first two atoms are the attribute name and the imported
-          %% module, so we skip them.
-          [_, _|Atoms] = [T || {atom, _, _} = T <- Tokens],
-          [ poi(Pos, import_entry, {M, F, A})
-            || {{F, A}, {atom, Pos, _}} <- lists:zip(Imports, Atoms)];
         {spec, {spec, {FA, _FTs}}} ->
           From = attribute_start_location(erl_syntax:get_pos(Tree)),
           To   = erl_scan:location(lists:last(Tokens)),
           [poi({From, To}, spec, FA)];
-        {export_type, {export_type, Exports}} ->
-          [_ | Atoms] = [T || {atom, _, _} = T <- Tokens],
-          ExportTypeEntries =
-            [ poi(Pos, export_type_entry, {F, A})
-              || {{F, A}, {atom, Pos, _}} <- lists:zip(Exports, Atoms)
-            ],
-          [find_attribute_tokens(Tokens), ExportTypeEntries];
         {compile, {compile, CompileOpts}} ->
           find_compile_options_pois(CompileOpts, Tokens);
         _ -> []
@@ -167,21 +146,20 @@ analyze_attribute(Tree) ->
       {AttrName, {AttrName, {TypeTree,
                              Definition,
                              erl_syntax:list_elements(ArgsListTree)}}};
-    AttrName when AttrName =:= export_type ->
-      %% erl_syntax/els_dodger does not handle export_type specially and returns
-      %% {TypeName, Arity} tuples, while els_erlfmt_ast returns arity_qualifier
-      %% elements which erl_syntax_lib:analyze_attribute handles differently
+    AttrName when AttrName =:= export;
+                  AttrName =:= export_type ->
       case erl_syntax:attribute_arguments(Tree) of
         [Args] ->
-          ExportEntries =
-            lists:flatten(
-              [ try erl_syntax_lib:analyze_function_name(TATree) of
-                  {_, _} = TA -> TA
-                catch
-                  throw:syntax_error -> []
-                end
-                || TATree <- erl_syntax:list_elements(Args)]),
-          {AttrName, {AttrName, ExportEntries}};
+          {AttrName, erl_syntax:list_elements(Args)};
+        _ ->
+          throw(syntax_error)
+      end;
+    import ->
+      case erl_syntax:attribute_arguments(Tree) of
+        [M] ->
+          {import, M};
+        [M, L] ->
+          {import, {M, erl_syntax:list_elements(L)}};
         _ ->
           throw(syntax_error)
       end;
@@ -341,6 +319,38 @@ attribute(Tree) ->
       [poi(Pos, module, Module)];
     {module, Module} ->
       [poi(Pos, module, Module)];
+    {AttrName, Exports} when AttrName =:= export;
+                             AttrName =:= export_type ->
+      EntryPoiKind = case AttrName of
+                       export      -> export_entry;
+                       export_type -> export_type_entry
+                     end,
+      ExportEntries =
+        [ try erl_syntax_lib:analyze_function_name(FATree) of
+            {F, A} ->
+              poi(erl_syntax:get_pos(FATree), EntryPoiKind, {F, A})
+          catch throw:syntax_error ->
+              []
+          end
+          || FATree <- Exports
+        ],
+      [ poi(erl_syntax:get_pos(Tree), AttrName, get_start_location(Tree))
+      | lists:flatten(ExportEntries) ];
+    {import, {ModTree, Imports}} ->
+      case erl_syntax:type(ModTree) of
+        atom ->
+          M = erl_syntax:atom_value(ModTree),
+          [ try erl_syntax_lib:analyze_function_name(FATree) of
+              {F, A} ->
+                poi(erl_syntax:get_pos(FATree), import_entry, {M, F, A})
+            catch throw:syntax_error ->
+                []
+            end
+            || FATree <- Imports
+          ];
+        _ ->
+          []
+      end;
     preprocessor ->
       Name = erl_syntax:atom_value(erl_syntax:attribute_name(Tree)),
       case {Name, erl_syntax:attribute_arguments(Tree)} of
