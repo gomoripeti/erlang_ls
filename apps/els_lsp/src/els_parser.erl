@@ -195,6 +195,24 @@ analyze_attribute(Tree) ->
       catch _:_ ->
           throw(syntax_error)
       end;
+    AttrName when AttrName =:= export_type ->
+      %% erl_syntax/els_dodger does not handle export_type specially and returns
+      %% {TypeName, Arity} tuples, while els_erlfmt_ast returns arity_qualifier
+      %% elements which erl_syntax_lib:analyze_attribute handles differently
+      case erl_syntax:attribute_arguments(Tree) of
+        [Args] ->
+          ExportEntries =
+            lists:flatten(
+              [ try erl_syntax_lib:analyze_function_name(TATree) of
+                  {_, _} = TA -> TA
+                catch
+                  throw:syntax_error -> []
+                end
+                || TATree <- erl_syntax:list_elements(Args)]),
+          {AttrName, {AttrName, ExportEntries}};
+        _ ->
+          throw(syntax_error)
+      end;
     _ ->
       erl_syntax_lib:analyze_attribute(Tree)
   end.
