@@ -30,12 +30,12 @@ range({{_Line, _Column} = From, {_ToLine, _ToColumn} = To}, Name, _, _Data)
   when Name =:= export;
        Name =:= export_type ->
   #{ from => From, to => To };
-range(Pos, export_entry, {F, A}, _Data) ->
-  get_entry_range(Pos, F, A);
-range(Pos, import_entry, {_M, F, A}, _Data) ->
-  get_entry_range(Pos, F, A);
-range({Line, Column}, export_type_entry, {F, A}, _Data) ->
-  get_entry_range({Line, Column}, F, A);
+%%range(Pos, export_entry, {F, A}, _Data) ->
+%%  get_entry_range(Pos, F, A);
+%%range(Pos, import_entry, {_M, F, A}, _Data) ->
+%%  get_entry_range(Pos, F, A);
+%%range({Line, Column}, export_type_entry, {F, A}, _Data) ->
+%%  get_entry_range({Line, Column}, F, A);
 %%range({_Line, _Column} = From, atom, Name, _Data) ->
 %%  To = plus(From, atom_to_string(Name)),
 %%  #{ from => From, to => To };
@@ -112,9 +112,9 @@ range({Line, Column}, parse_transform, PT, _Data) ->
 %%range(Pos, record_field, {_Record, Field}, _Data) ->
 %%  From = Pos,
 %%  #{ from => From, to => plus(From, atom_to_string(Field)) };
-range(Pos, record_def_field, {_Record, Field}, _Data) ->
-  From = Pos,
-  #{ from => From, to => plus(From, atom_to_string(Field)) };
+%%range(Pos, record_def_field, {_Record, Field}, _Data) ->
+%%  From = Pos,
+%%  #{ from => From, to => plus(From, atom_to_string(Field)) };
 range({Line, Column}, record, Record, _Data) ->
   From = plus({Line, Column}, "record("),
   To = plus(From, atom_to_string(Record)),
