@@ -184,13 +184,9 @@ analyze_attribute(Tree) ->
       [ArgTuple] = erl_syntax:attribute_arguments(Tree),
       [TypeTree, _, ArgsListTree] = erl_syntax:tuple_elements(ArgTuple),
       Definition = [], %% ignore definition
-      %% concrete will throw an error if `TyperTree' is a macro
-      try erl_syntax:concrete(TypeTree) of
-        TypeName ->
-          {AttrName, {AttrName, {TypeName,
-                                 Definition,
-                                 erl_syntax:list_elements(ArgsListTree)}}}
-      catch _:_ ->
+      {AttrName, {AttrName, {TypeTree,
+                             Definition,
+                             erl_syntax:list_elements(ArgsListTree)}}};
           throw(syntax_error)
       end;
     _ ->
@@ -348,14 +344,15 @@ attribute(Tree) ->
       end;
     {record, {Record, Fields}} ->
       [poi(Pos, record, Record, Fields) | record_def_fields(Tree, Record)];
-    {type, {type, {Type, _, Args}}} ->
-      {Line, Col} = Pos,
-      [poi({Line, Col + length("type ")}, type_definition,
-           {Type, length(Args)}, type_args(Args))];
-    {opaque, {opaque, {Type, _, Args}}} ->
-      {Line, Col} = Pos,
-      [poi({Line, Col + length("opaque ")}, type_definition,
-           {Type, length(Args)}, type_args(Args))];
+    {AttrName, {AttrName, {Type, _, Args}}} when AttrName =:= type;
+                                                 AttrName =:= opaque ->
+      case erl_syntax:type(Type) of
+        atom ->
+          [poi(erl_syntax:get_pos(Type), type_definition,
+               {erl_syntax:atom_value(Type), length(Args)}, type_args(Args))];
+        _ ->
+          []
+      end;
     _ ->
       []
   catch throw:syntax_error ->
