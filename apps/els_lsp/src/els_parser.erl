@@ -460,7 +460,8 @@ record_access(Tree) ->
           _    ->
             []
         end,
-      [ poi(erl_syntax:get_pos(Tree), record_expr, Record)
+      Start = record_access_hash_location(Tree),
+      [ poi(Start, record_expr, Record)
       | FieldPoi ];
     _ ->
       []
@@ -775,6 +776,19 @@ pretty_print_clause(Tree) ->
                                 , PrettyGuard
                                 ]),
   els_utils:to_binary(PrettyClause).
+
+-spec record_access_hash_location(tree()) -> erl_anno:location().
+record_access_hash_location(Tree) ->
+  case erl_syntax:get_pos(Tree) of
+    Anno when is_map(Anno) ->
+      %% erlfmt_parser sets start at the start of the argument
+      %% we don't have an exact location of '#'
+      %% best approximation is the end of the argument
+      maps:get(end_location, erl_syntax:get_pos(erl_syntax:record_access_argument(Tree)));
+    Anno ->
+      %% erl_parse sets start at '#'
+      erl_anno:location(Anno)
+  end.
 
 -spec get_start_location(tree()) -> erl_anno:location().
 get_start_location(Tree) ->
