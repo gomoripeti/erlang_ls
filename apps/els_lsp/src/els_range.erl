@@ -23,6 +23,18 @@ in(#{from := FromA, to := ToA}, #{from := FromB, to := ToB}) ->
   FromA >= FromB andalso ToA =< ToB.
 
 -spec range(pos() | {pos(), pos()}, poi_kind(), any(), any()) -> poi_range().
+range(Anno, Type, Id, Data) when is_map(Anno) ->
+  %% Recommenting can modify the start and end locations of certain trees
+  %% see erlfmt_recomment:put_(pre|post)_comments/1
+  From =
+    case maps:is_key(pre_comments, Anno) of
+      true ->
+        maps:get(inner_location, Anno);
+      false ->
+        maps:get(location, Anno)
+    end,
+
+  range(From, Type, Id, Data);
 range({{Line, Column}, {ToLine, ToColumn}}, Name, _, _Data)
   when Name =:= folding_range;
        Name =:= spec ->
