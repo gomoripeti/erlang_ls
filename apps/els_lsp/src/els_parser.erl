@@ -362,11 +362,11 @@ attribute(Tree) ->
     {record, {Record, Fields}} ->
       [poi(Pos, record, Record, Fields) | record_def_fields(Tree, Record)];
     {type, {type, {Type, _, Args}}} ->
-      {Line, Col} = Pos,
+      {Line, Col} = get_start_location(Tree),
       [poi({Line, Col + length("type ")}, type_definition,
            {Type, length(Args)}, type_args(Args))];
     {opaque, {opaque, {Type, _, Args}}} ->
-      {Line, Col} = Pos,
+      {Line, Col} = get_start_location(Tree),
       [poi({Line, Col + length("opaque ")}, type_definition,
            {Type, length(Args)}, type_args(Args))];
     _ ->
@@ -396,7 +396,7 @@ function(Tree, {EndLine, _} = _EndLocation) ->
                      )
                   || {I, Clause} <- IndexedClauses],
   Args = function_args(hd(Clauses), A),
-  {StartLine, _} = StartLocation = erl_syntax:get_pos(Tree),
+  {StartLine, _} = StartLocation = get_start_location(Tree),
   %% It only makes sense to fold a function if the function contains
   %% at least one line apart from its signature.
   FoldingRanges = case EndLine - StartLine > 1 of
@@ -775,3 +775,18 @@ pretty_print_clause(Tree) ->
                                 , PrettyGuard
                                 ]),
   els_utils:to_binary(PrettyClause).
+
+-spec get_start_location(tree()) -> erl_anno:location().
+get_start_location(Tree) ->
+  get_anno(location, erl_syntax:get_pos(Tree)).
+
+-spec get_anno(atom(), erl_anno:anno() | map()) -> term().
+get_anno(location, Anno) when is_map(Anno) ->
+  case maps:is_key(pre_comments, Anno) of
+    true ->
+      maps:get(inner_location, Anno);
+    false ->
+      maps:get(location, Anno)
+  end;
+get_anno(location, Anno) ->
+  erl_anno:location(Anno).
