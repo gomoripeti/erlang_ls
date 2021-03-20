@@ -36,9 +36,9 @@ range(Pos, import_entry, {_M, F, A}, _Data) ->
   get_entry_range(Pos, F, A);
 range({Line, Column}, export_type_entry, {F, A}, _Data) ->
   get_entry_range({Line, Column}, F, A);
-range({_Line, _Column} = From, atom, Name, _Data) ->
-  To = plus(From, atom_to_string(Name)),
-  #{ from => From, to => To };
+%%range({_Line, _Column} = From, atom, Name, _Data) ->
+%%  To = plus(From, atom_to_string(Name)),
+%%  #{ from => From, to => To };
 range({Line, Column}, application, {_, F, A}, #{imported := true} = Data) ->
   range({Line, Column}, application, {F, A}, Data);
 range({Line, Column}, application, {M, F, _A}, _Data) ->
@@ -105,13 +105,13 @@ range({Line, Column}, parse_transform, PT, _Data) ->
   From = {Line, Column},
   To = plus(From, atom_to_string(PT)),
   #{ from => From, to => To };
-range({Line, Column}, record_expr, Record, _Data) ->
-  %% the range includes the leading '#'
-  From = {Line, Column},
-  #{ from => From, to => plus(From, "#" ++ atom_to_string(Record)) };
-range(Pos, record_field, {_Record, Field}, _Data) ->
-  From = Pos,
-  #{ from => From, to => plus(From, atom_to_string(Field)) };
+%%range({Line, Column}, record_expr, Record, _Data) ->
+%%  %% the range includes the leading '#'
+%%  From = {Line, Column},
+%%  #{ from => From, to => plus(From, "#" ++ atom_to_string(Record)) };
+%%range(Pos, record_field, {_Record, Field}, _Data) ->
+%%  From = Pos,
+%%  #{ from => From, to => plus(From, atom_to_string(Field)) };
 range(Pos, record_def_field, {_Record, Field}, _Data) ->
   From = Pos,
   #{ from => From, to => plus(From, atom_to_string(Field)) };
@@ -131,10 +131,10 @@ range({Line, Column}, type_definition, {Name, _}, _Data) ->
   From = {Line, Column},
   To = plus(From, atom_to_string(Name)),
   #{ from => From, to => To };
-range({Line, Column}, variable, Name, _Data) ->
-  From = {Line, Column},
-  To = plus(From, atom_to_list(Name)),
-  #{ from => From, to => To };
+%%range({Line, Column}, variable, Name, _Data) ->
+%%  From = {Line, Column},
+%%  To = plus(From, atom_to_list(Name)),
+%%  #{ from => From, to => To };
 range(Anno, _Type, _Id, _Data) when is_map(Anno) ->
   %% Recommenting can modify the start and end locations of certain trees
   %% see erlfmt_recomment:put_(pre|post)_comments/1
