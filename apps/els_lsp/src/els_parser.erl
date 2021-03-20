@@ -464,7 +464,10 @@ record_expr(Tree) ->
       FieldPois  = lists:append(
                      [record_field_name(F, Record, record_field)
                       || F <- erl_syntax:record_expr_fields(Tree)]),
-      [ poi(erl_syntax:get_pos(Tree), record_expr, Record)
+      Start = get_start_location(Tree),
+      Anno = erl_syntax:get_pos(RecordNode),
+      PoiAnno = set_start_location(Start, Anno),
+      [ poi(PoiAnno, record_expr, Record)
       | FieldPois ];
     _ ->
       []
