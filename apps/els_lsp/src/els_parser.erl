@@ -135,7 +135,7 @@ find_attribute_pois(Tree, Tokens) ->
           [ poi(Pos, import_entry, {M, F, A})
             || {{F, A}, {atom, Pos, _}} <- lists:zip(Imports, Atoms)];
         {spec, {spec, {{F, A}, _FTs}}} ->
-          From = erl_syntax:get_pos(Tree),
+          From = get_start_location(Tree),
           To   = erl_scan:location(lists:last(Tokens)),
           [poi({From, To}, spec, {F, A})];
         {export_type, {export_type, Exports}} ->
@@ -382,7 +382,7 @@ function(Tree, {EndLine, _} = _EndLocation) ->
                      )
                   || {I, Clause} <- IndexedClauses],
   Args = function_args(hd(Clauses), A),
-  {StartLine, _} = StartLocation = erl_syntax:get_pos(Tree),
+  {StartLine, _} = StartLocation = get_start_location(Tree),
   %% It only makes sense to fold a function if the function contains
   %% at least one line apart from its signature.
   FoldingRanges = case EndLine - StartLine > 1 of
@@ -761,3 +761,10 @@ pretty_print_clause(Tree) ->
                                 , PrettyGuard
                                 ]),
   els_utils:to_binary(PrettyClause).
+
+get_start_location(Tree) ->
+  get_anno(location, Tree).
+
+get_anno(Key, Tree) ->
+  Anno = erl_syntax:get_pos(Tree),
+  maps:get(Key, Anno).
