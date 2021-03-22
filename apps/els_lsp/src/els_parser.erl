@@ -94,7 +94,12 @@ parse_erlfmt_form({raw_string, Anno, Text}, _Tokens) ->
   {ok, RangeTokens, EndLocation} = erl_scan:string(Text, Start, []),
   {ok, find_attribute_tokens(RangeTokens), EndLocation};
 parse_erlfmt_form(Form, Tokens) ->
-  EndLocation = erlfmt_scan:get_anno(end_location, Form),
+  %% TMP simulate EndLocation from erl_scan:tokens which is the next character
+  %% of Text after a dot and whitespace (which terminates a form by definition)
+  %% erlfmt_parse sets end_location of a form by just incrementing the column of
+  %% the final dot (ie keeps the same line)
+  {EndLine, _} = erlfmt_scan:get_anno(end_location, Form),
+  EndLocation = {EndLine + 1, 1},
   RangeTokens = tokens_in_range(Tokens, Form),
   Tree = els_erlfmt_ast:erlfmt_to_st(Form),
   POIs = [ find_attribute_pois(Tree, RangeTokens)
