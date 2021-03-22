@@ -758,6 +758,32 @@ attribute_subtrees(AttrName, _)
   when AttrName =:= include;
        AttrName =:= include_lib ->
   [];
+attribute_subtrees(AttrName, [ArgTuple])
+  when AttrName =:= callback;
+       AttrName =:= spec ->
+  case erl_syntax:type(ArgTuple) of
+    tuple ->
+      [FATree | Rest] = erl_syntax:tuple_elements(ArgTuple),
+      %% concrete will throw an error if `FATRee' contains any macro
+      [ try erl_syntax:concrete(FATree) of
+          {_, _} -> []
+        catch
+          _:_ -> [FATree]
+        end
+      , Rest ];
+    _ ->
+      [[ArgTuple]]
+  end;
+attribute_subtrees(AttrName, [ArgTuple])
+  when AttrName =:= type;
+       AttrName =:= opaque ->
+  case erl_syntax:type(ArgTuple) of
+    tuple ->
+      [Type | Rest] = erl_syntax:tuple_elements(ArgTuple),
+      [skip_record_field_atom(Type), Rest];
+    _ ->
+      [ArgTuple]
+  end;
 attribute_subtrees(AttrName, Args)
   when is_atom(AttrName) ->
       [Args];
