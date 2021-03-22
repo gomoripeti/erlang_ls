@@ -135,9 +135,7 @@ find_attribute_pois(Tree, Tokens) ->
           [ poi(Pos, import_entry, {M, F, A})
             || {{F, A}, {atom, Pos, _}} <- lists:zip(Imports, Atoms)];
         {spec, {spec, {{F, A}, _FTs}}} ->
-          %% This location has to match that of spec in
-          %% find_attribute_tokens/1
-          From = erl_scan:location(hd(Tokens)),
+          From = attribute_start_location(erl_syntax:get_pos(Tree)),
           To   = erl_scan:location(lists:last(Tokens)),
           [poi({From, To}, spec, {F, A})];
         {export_type, {export_type, Exports}} ->
@@ -351,7 +349,7 @@ application_with_variable(Operator, A) ->
 
 -spec attribute(tree()) -> [poi()].
 attribute(Tree) ->
-  Pos = erl_syntax:get_pos(Tree),
+  Pos = attribute_start_location(erl_syntax:get_pos(Tree)),
   try analyze_attribute(Tree) of
     %% Yes, Erlang allows both British and American spellings for
     %% keywords.
@@ -380,12 +378,12 @@ attribute(Tree) ->
     {record, {Record, Fields}} ->
       [poi(Pos, record, Record, Fields) | record_def_fields(Tree, Record)];
     {type, {type, {Type, _, Args}}} ->
-      {Line, Col} = get_start_location(Tree),
-      [poi({Line, Col + length("type ")}, type_definition,
+      {Line, Col} = Pos,
+      [poi({Line, Col + length("-type ")}, type_definition,
            {Type, length(Args)}, type_args(Args))];
     {opaque, {opaque, {Type, _, Args}}} ->
-      {Line, Col} = get_start_location(Tree),
-      [poi({Line, Col + length("opaque ")}, type_definition,
+      {Line, Col} = Pos,
+      [poi({Line, Col + length("-opaque ")}, type_definition,
            {Type, length(Args)}, type_args(Args))];
     _ ->
       []
@@ -807,6 +805,15 @@ record_access_hash_location(Tree) ->
       %% erl_parse sets start at '#'
       erl_anno:location(Anno)
   end.
+
+attribute_start_location(Anno) when is_map(Anno) ->
+  %% erlfmt_parse correctly sets the start column of attributes to the column of '-'
+  {_Line, _Column} = maps:get(location, Anno);
+attribute_start_location(Anno) ->
+  %% erl_parse sets the start column of attributes to the start of the name atom
+  %% as a heuristics assume the '-' is the previous char
+  {Line, Column} = erl_anno:location(Anno),
+  {Line, Column - 1}.
 
 -spec get_start_location(tree()) -> erl_anno:location().
 get_start_location(Tree) ->

@@ -38,7 +38,6 @@ range(Anno, Type, Id, Data) when is_map(Anno) ->
 range({{Line, Column}, {ToLine, ToColumn}}, Name, _, _Data)
   when Name =:= folding_range;
        Name =:= spec ->
-  %% -1 as we include the "-" before spec.
   From = {Line, Column},
   %% +1 as we include the . after the spec
   To = {ToLine, ToColumn + 1},
@@ -80,11 +79,11 @@ range({Line, Column}, implicit_fun, {F, A}, _Data) ->
   To = plus(From, "fun " ++ atom_to_string(F) ++ "/" ++ integer_to_list(A)),
   #{ from => From, to => To };
 range({Line, Column}, behaviour, Behaviour, _Data) ->
-  From = {Line, Column - 1},
+  From = {Line, Column},
   To = plus(From, "-behaviour(" ++ atom_to_string(Behaviour) ++ ")."),
   #{ from => From, to => To };
 range({Line, Column}, callback, {F, _A}, _Data) ->
-  From = {Line, Column - 1},
+  From = {Line, Column},
   To = plus(From, "-callback " ++ atom_to_string(F)),
   #{ from => From, to => To };
 range({Line, Column}, function, {F, _A}, _Data) ->
@@ -96,15 +95,15 @@ range({Line, Column}, function_clause, {F, _A, _Index}, _Data) ->
   To = plus(From, atom_to_string(F)),
   #{ from => From, to => To };
 range({Line, Column}, define, Define, _Data) ->
-  From = plus({Line, Column}, "define("),
+  From = plus({Line, Column}, "-define("),
   To = plus(From, atom_to_list(Define)),
   #{ from => From, to => To };
 range({Line, Column}, include, Include, _Data) ->
-  From = {Line, Column - 1},
+  From = {Line, Column},
   To = plus(From, "-include(\"" ++ Include ++ "\")."),
   #{ from => From, to => To };
 range({Line, Column}, include_lib, Include, _Data) ->
-  From = {Line, Column - 1},
+  From = {Line, Column},
   To = plus(From, "-include_lib(\"" ++ Include ++ "\")."),
   #{ from => From, to => To };
 range({Line, Column}, macro, Macro, _Data) when is_atom(Macro) ->
@@ -112,8 +111,7 @@ range({Line, Column}, macro, Macro, _Data) when is_atom(Macro) ->
   To = plus(From, "?" ++ atom_to_list(Macro)),
   #{ from => From, to => To };
 range({Line, Column}, module, Module, _Data) ->
-  %% The Column we get is of the 'm' in the -module pragma
-  From = plus({Line, Column}, "module("),
+  From = plus({Line, Column}, "-module("),
   To = plus(From, atom_to_string(Module)),
   #{ from => From, to => To };
 range({Line, Column}, parse_transform, PT, _Data) ->
@@ -131,7 +129,7 @@ range(Pos, record_def_field, {_Record, Field}, _Data) ->
   From = Pos,
   #{ from => From, to => plus(From, atom_to_string(Field)) };
 range({Line, Column}, record, Record, _Data) ->
-  From = plus({Line, Column}, "record("),
+  From = plus({Line, Column}, "-record("),
   To = plus(From, atom_to_string(Record)),
   #{ from => From, to => To };
 range({Line, Column}, type_application, {F, _A}, _Data) ->
