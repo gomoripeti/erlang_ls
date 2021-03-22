@@ -740,9 +740,16 @@ attribute_subtrees(AttrName, [Mod])
   [skip_record_field_atom(Mod)];
 attribute_subtrees(record, [_RecordName, FieldsTuple]) ->
   [[FieldsTuple]];
-attribute_subtrees(import, [Mod, Imports]) ->
+attribute_subtrees(import, [Mod, _Imports]) ->
   [ skip_record_field_atom(Mod)
-  , [Imports]];
+    %% TMP erlfmt don't traverse imports to avoid creating extra atom POIs
+    %%, [Imports]];
+  , []];
+attribute_subtrees(AttrName, [_Exports])
+  when AttrName =:= export;
+       AttrName =:= export_type ->
+  %% TMP erlfmt don't traverse exports to avoid creating extra atom POIs
+  [];
 attribute_subtrees(define, [_Name | Definition]) ->
   %% The definition can contain commas, in which case it will look like as if
   %% the attribute would have more than two arguments. Eg.: `-define(M, a, b).'
