@@ -134,10 +134,10 @@ find_attribute_pois(Tree, Tokens) ->
           [_, _|Atoms] = [T || {atom, _, _} = T <- Tokens],
           [ poi(Pos, import_entry, {M, F, A})
             || {{F, A}, {atom, Pos, _}} <- lists:zip(Imports, Atoms)];
-        {spec, {spec, {{F, A}, _FTs}}} ->
+        {spec, {spec, {FA, _FTs}}} ->
           From = attribute_start_location(erl_syntax:get_pos(Tree)),
           To   = erl_scan:location(lists:last(Tokens)),
-          [poi({From, To}, spec, {F, A})];
+          [poi({From, To}, spec, FA)];
         {export_type, {export_type, Exports}} ->
           [_ | Atoms] = [T || {atom, _, _} = T <- Tokens],
           ExportTypeEntries =
@@ -177,7 +177,9 @@ analyze_attribute(Tree) ->
         FA ->
           {AttrName, {AttrName, {FA, Definition}}}
       catch _:_ ->
-          throw(syntax_error)
+          %% els_dodger cannot parse a macro, but erlfmt_parse can
+          %% We still want to create an unnamed spec-context (for type-completions)
+          {AttrName, {AttrName, {undefined, Definition}}}
       end;
     AttrName when AttrName =:= opaque;
                   AttrName =:= type ->
