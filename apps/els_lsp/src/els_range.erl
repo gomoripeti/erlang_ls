@@ -11,7 +11,7 @@ compare( #{from := FromA, to := ToA}
        , #{from := FromB, to := ToB}
        ) when FromB =< FromA, ToA =< ToB; %% Nested
               ToA =< FromB;               %% Sequential
-              FromA =< FromB, ToA =< ToB  %% Sequential & Overlapped
+              FromA =< FromB, ToA < ToB   %% Sequential & Overlapped
               ->
   true;
 compare(_, _) ->
