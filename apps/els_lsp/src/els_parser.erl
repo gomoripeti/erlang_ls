@@ -35,8 +35,7 @@ parse_file(IoDevice) ->
 
 %% Adapted from els_dodger
 -spec parse_form(file:io_device(), any(), [any()]) ->
-    {'ok', erl_syntax:forms()
-  | none, integer()}
+    {'ok', [poi()], integer()}
   | {'eof', integer()}
   | {'error', any(), integer()}.
 parse_form(IoDevice, Location, Options) ->
@@ -44,7 +43,7 @@ parse_form(IoDevice, Location, Options) ->
 
 %% Adapted from els_dodger
 -spec parse_form(file:io_device(), any(), function(), [any()]) ->
-  {'ok', erl_syntax:forms() | none, integer()}
+  {'ok', [poi()], integer()}
   | {'eof', integer()}
   | {'error', any(), integer()}.
 parse_form(IoDevice, StartLocation, Parser, _Options) ->
