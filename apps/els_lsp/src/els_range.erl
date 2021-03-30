@@ -3,6 +3,7 @@
 -include("els_lsp.hrl").
 
 -export([ compare/2
+        , is_nested/2
         , range/4
         ]).
 
@@ -16,6 +17,11 @@ compare( #{from := FromA, to := ToA}
   true;
 compare(_, _) ->
   false.
+
+-spec is_nested(Inner :: poi_range(), Outer :: poi_range()) -> boolean().
+is_nested(#{from := InnerFrom, to := InnerTo},
+          #{from := OuterFrom, to := OuterTo}) ->
+  OuterFrom =< InnerFrom andalso InnerTo =< OuterTo.
 
 -spec range(pos() | {pos(), pos()}, poi_kind(), any(), any()) -> poi_range().
 range({{Line, Column}, {ToLine, ToColumn}}, Name, _, _Data)

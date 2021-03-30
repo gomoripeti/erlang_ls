@@ -10,6 +10,8 @@
         , parse_file/1
         ]).
 
+-export([filter_redundant_atoms/1]).
+
 %%==============================================================================
 %% Includes
 %%==============================================================================
@@ -54,7 +56,8 @@ parse_form(IoDevice, StartLocation, Parser, _Options) ->
           POIs = [ find_attribute_pois(Tree, Tokens)
                  , points_of_interest(Tree, EndLocation)
                  ],
-          {ok, POIs, EndLocation}
+          FilteredPOIs = filter_redundant_atoms(lists:flatten(POIs)),
+          {ok, FilteredPOIs, EndLocation}
       catch
         _:_ ->
           {ok, find_attribute_tokens(Tokens), EndLocation}
@@ -678,25 +681,69 @@ attribute_subtrees(AttrName, Args) ->
 %% `record_field' pois
 -spec skip_record_field_atom(tree()) -> [tree()].
 skip_record_field_atom(NameNode) ->
-  case erl_syntax:type(NameNode) of
-     atom ->
-       [];
-     _ ->
+%%  case erl_syntax:type(NameNode) of
+%%     atom ->
+%%       [];
+%%     _ ->
        [NameNode]
-   end.
+%%   end.
+    .
 
 -spec skip_type_name_atom(tree()) -> [tree()].
 skip_type_name_atom(NameNode) ->
-  case erl_syntax:type(NameNode) of
-     atom ->
-       [];
-    module_qualifier ->
-      skip_record_field_atom(erl_syntax:module_qualifier_body(NameNode))
-        ++
-        skip_record_field_atom(erl_syntax:module_qualifier_argument(NameNode));
-     _ ->
+  %%case erl_syntax:type(NameNode) of
+  %%  atom ->
+  %%    [];
+  %%  module_qualifier ->
+  %%    skip_record_field_atom(erl_syntax:module_qualifier_body(NameNode))
+  %%      ++
+  %%      skip_record_field_atom(erl_syntax:module_qualifier_argument(NameNode));
+  %%   _ ->
        [NameNode]
-   end.
+  %% end.
+    .
+
+%% @doc Drop redundant atom POIs which are also represented by another POI,
+%% and only keep those which represent literal atom constants.
+%% (For example module name or record_field)
+-spec filter_redundant_atoms([poi()]) -> [poi()].
+filter_redundant_atoms(POIs) ->
+  SortedPOIs = els_poi:sort(POIs),
+  scan_atoms(SortedPOIs).
+
+%% @doc Drop atom POIs which either have exactly the same range as another POI
+%% or are fully nested in another POI (except for range POIs like folding_range
+%% or spec, which cover complete forms or clauses)
+-spec scan_atoms([poi()]) -> [poi()].
+scan_atoms([#{range := R} = POI, #{kind := atom, range := R} | Rest])->
+  %% preceeding POI with exact same range
+  [POI | scan_atoms(Rest)];
+scan_atoms([#{kind := atom, range := AtomRange} = APOI | Rest]) ->
+  NonAtom = lists:dropwhile(fun(#{kind := K}) -> K =:= atom end, Rest),
+  %% FIXME what if the nesting POI does not directly follow the atom
+  %% ie {atom, m},{macro, F},{application,{m,F,0}
+  %% is this possible?
+  case NonAtom of
+    [#{kind := K, range := OuterRange}|_]
+      when K =/= folding_range
+           , K =/= spec
+           , K =/= export
+           , K =/= export_type
+           ->
+      case els_range:is_nested(AtomRange, OuterRange) of
+        true ->
+          %% atom is already represented by another POI
+          scan_atoms(Rest);
+        false ->
+          [APOI | scan_atoms(Rest)]
+      end;
+    _ ->
+      [APOI | scan_atoms(Rest)]
+  end;
+scan_atoms([POI|T]) ->
+  [POI | scan_atoms(T)];
+scan_atoms([]) ->
+  [].
 
 -spec pretty_print_clause(tree()) -> binary().
 pretty_print_clause(Tree) ->
