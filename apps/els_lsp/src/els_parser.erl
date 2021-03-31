@@ -403,11 +403,8 @@ implicit_fun(Tree) ->
 
 -spec macro(tree()) -> [poi()].
 macro(Tree) ->
-  Pos = erl_syntax:get_pos(Tree),
-  case Pos of
-    0 -> [];
-    _ -> [poi(Pos, macro, node_name(Tree))]
-  end.
+  Anno = macro_location(Tree),
+  [poi(Anno, macro, node_name(Tree))].
 
 -spec record_access(tree()) -> [poi()].
 record_access(Tree) ->
@@ -835,6 +832,16 @@ record_expr_start_location(Tree) ->
     record_type ->
       get_start_location(Tree)
   end.
+
+-spec macro_location(tree()) -> erl_anno:location().
+macro_location(Tree) ->
+  %% set start location at '?'
+  %% and end location at the end of macro name
+  %% (exclude arguments)
+  Start = get_start_location(Tree),
+  MacroName = erl_syntax:macro_name(Tree),
+  Anno = erl_syntax:get_pos(MacroName),
+  erlfmt_scan:put_anno(location, Start, Anno).
 
 -spec get_start_location(tree()) -> erl_anno:location().
 get_start_location(Tree) ->
