@@ -426,8 +426,8 @@ record_access(Tree) ->
           _    ->
             []
         end,
-      Start = record_access_hash_location(Tree),
-      [ poi(Start, record_expr, Record)
+      Anno = record_access_location(Tree),
+      [ poi(Anno, record_expr, Record)
       | FieldPoi ];
     _ ->
       []
@@ -442,7 +442,8 @@ record_expr(Tree) ->
       FieldPois  = lists:append(
                      [record_field_name(F, Record, record_field)
                       || F <- erl_syntax:record_expr_fields(Tree)]),
-      [ poi(erl_syntax:get_pos(Tree), record_expr, Record)
+      Anno = record_expr_location(Tree, RecordNode),
+      [ poi(Anno, record_expr, Record)
       | FieldPois ];
     _ ->
       []
@@ -502,7 +503,8 @@ record_type(Tree) ->
       FieldPois  = lists:append(
                      [record_field_name(F, Record, record_field)
                       || F <- erl_syntax:record_type_fields(Tree)]),
-      [ poi(erl_syntax:get_pos(Tree), record_expr, Record)
+      Anno = record_expr_location(Tree, RecordNode),
+      [ poi(Anno, record_expr, Record)
       | FieldPois ];
     _ ->
       []
@@ -799,17 +801,40 @@ pretty_print_clause(Tree) ->
                                 ]),
   els_utils:to_binary(PrettyClause).
 
--spec record_access_hash_location(tree()) -> erl_anno:location().
-record_access_hash_location(Tree) ->
-  case erl_syntax:get_pos(Tree) of
-    Anno when is_map(Anno) ->
-      %% erlfmt_parser sets start at the start of the argument
-      %% we don't have an exact location of '#'
-      %% best approximation is the end of the argument
-      maps:get(end_location, erl_syntax:get_pos(erl_syntax:record_access_argument(Tree)));
-    Anno ->
-      %% erl_parse sets start at '#'
-      erl_anno:location(Anno)
+-spec record_access_location(tree()) -> erl_anno:location().
+record_access_location(Tree) ->
+  %% erlfmt_parser sets start at the start of the argument expression
+  %% we don't have an exact location of '#'
+  %% best approximation is the end of the argument
+  Start = get_end_location(erl_syntax:record_access_argument(Tree)),
+  Anno = erl_syntax:get_pos(erl_syntax:record_access_type(Tree)),
+  erlfmt_scan:put_anno(location, Start, Anno).
+
+-spec record_expr_location(tree(), tree()) -> erl_anno:location().
+record_expr_location(Tree, RecordName) ->
+  %% set start location at '#'
+  %% and end location at the end of record name
+  Start = record_expr_start_location(Tree),
+  Anno = erl_syntax:get_pos(RecordName),
+  erlfmt_scan:put_anno(location, Start, Anno).
+
+-spec record_expr_start_location(tree()) -> erl_anno:location().
+record_expr_start_location(Tree) ->
+  %% If this is a new record creation or record type
+  %% the tree start location is at '#'.
+  %% However if this is a record update, then
+  %% we don't have an exact location of '#',
+  %% best approximation is the end of the argument.
+  case erl_syntax:type(Tree) of
+    record_expr ->
+      case erl_syntax:record_expr_argument(Tree) of
+        none ->
+          get_start_location(Tree);
+        RecordArg ->
+          get_end_location(RecordArg)
+      end;
+    record_type ->
+      get_start_location(Tree)
   end.
 
 -spec get_start_location(tree()) -> erl_anno:location().
