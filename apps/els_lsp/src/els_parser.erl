@@ -512,16 +512,17 @@ record_type(Tree) ->
 
 -spec type_application(tree()) -> [poi()].
 type_application(Tree) ->
-  Pos = erl_syntax:get_pos(Tree),
   Type = erl_syntax:type(Tree),
   case erl_syntax_lib:analyze_type_application(Tree) of
     {Module, {Name, Arity}} ->
       %% remote type
       Id = {Module, Name, Arity},
+      Pos = erl_syntax:get_pos(erl_syntax:type_application_name(Tree)),
       [poi(Pos, type_application, Id)];
     {Name, Arity} when Type =:= user_type_application ->
       %% user-defined local type
       Id = {Name, Arity},
+      Pos = erl_syntax:get_pos(erl_syntax:user_type_application_name(Tree)),
       [poi(Pos, type_application, Id)];
     {_Name, _Arity} when Type =:= type_application  ->
       %% No POIs for built-in types
