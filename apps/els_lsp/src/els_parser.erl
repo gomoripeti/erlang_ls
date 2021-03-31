@@ -294,18 +294,29 @@ attribute(Tree) ->
         _ ->
           []
       end;
-    {AttrName, [ArgTuple]} when AttrName =:= callback;
-                                AttrName =:= spec ->
-      PoiKind = AttrName,
+    {callback, [ArgTuple]} ->
       [FATree | _] = erl_syntax:tuple_elements(ArgTuple),
       %% concrete will throw an error if `FATRee' contains any macro
       try erl_syntax:concrete(FATree) of
         {F, A} ->
-          %% [FTree, _] = erl_syntax:tuple_elements(FATree),
-          %% SpecNamePos = erl_syntax:get_pos(FTree)
-          [poi(erl_syntax:get_pos(Tree), PoiKind, {F, A})]
+          [FTree, _] = erl_syntax:tuple_elements(FATree),
+          Anno = erl_syntax:get_pos(FTree),
+          %% FIXME this is weird:
+          %% starts at '-', ends at the end of callback function name
+          Start = get_start_location(Tree),
+          CallbackAnno = erlfmt_scan:put_anno(location, Start, Anno),
+          [poi(CallbackAnno, callback, {F, A})]
       catch _:_ ->
-          [poi(Pos, PoiKind, undefined)]
+          throw(syntax_error)
+      end;
+    {spec, [ArgTuple]} ->
+      [FATree | _] = erl_syntax:tuple_elements(ArgTuple),
+      %% concrete will throw an error if `FATRee' contains any macro
+      try erl_syntax:concrete(FATree) of
+        {F, A} ->
+          [poi(Pos, spec, {F, A})]
+      catch _:_ ->
+          [poi(Pos, spec, undefined)]
       end;
     _ ->
       []
