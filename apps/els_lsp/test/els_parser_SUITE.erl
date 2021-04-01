@@ -73,13 +73,13 @@ parse_invalid_code(_Config) ->
 
 -spec underscore_macro(config()) -> ok.
 underscore_macro(_Config) ->
-  ?assertMatch({ok, [#{id := '_'} | _]},
+  ?assertMatch({ok, [#{id := '_', kind := define} | _]},
                els_parser:parse("-define(_(Text), gettexter:gettext(Text)).")),
-  ?assertMatch({ok, [#{id := '_'} | _]},
+  ?assertMatch({ok, [#{id := '_', kind := define} | _]},
                els_parser:parse("-define(_, smth).")),
-  ?assertMatch({ok, []},
+  ?assertMatch({ok, [#{id := '_', kind := macro}]},
                els_parser:parse("?_.")),
-  ?assertMatch({ok, []},
+  ?assertMatch({ok, [#{id := '_', kind := macro} | _]},
                els_parser:parse("?_(ok).")),
   ok.
 
@@ -225,16 +225,16 @@ type_name_macro(_Config) ->
   ok.
 
 spec_name_macro(_Config) ->
-  %% Currently els_dodger cannot parse this
-  %% We can only find a spec-context
-  Text1 = "-spec ?M() -> integer() | t().",
-  ?assertMatch({ok, [#{kind := spec, id := undefined}]},
-               els_parser:parse(Text1)),
-
   %% Verify the parser does not crash on macros in spec function names
-  %% and it still returns POIs from the definition body
+  %% and it still returns an unnamed spec-context and POIs from the definition body
+  Text1 = "-spec ?M() -> integer() | t().",
+  ?assertMatch([#{id := undefined}], parse_find_pois(Text1, spec)),
+  ?assertMatch([_], parse_find_pois(Text1, type_application, {t, 0})),
+
   Text2 = "-spec ?MODULE:b() -> integer() | t().",
-  ?assertMatch([_], parse_find_pois(Text2, type_application, {t, 0})),
+  ?assertMatch([#{id := undefined}], parse_find_pois(Text2, spec)),
+  %% TODO: Update erlfmt, a later version can parse this
+  %%?assertMatch([_], parse_find_pois(Text2, type_application, {t, 0})),
   ok.
 
 -spec unicode_clause_pattern(config()) -> ok.
