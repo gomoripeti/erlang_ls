@@ -372,7 +372,8 @@ function(Tree) ->
                     false ->
                       []
                   end,
-  lists:append([ [ poi(StartLocation, function, {F, A}, Args) ]
+  FunName = erl_syntax:function_name(Tree),
+  lists:append([ [ poi(erl_syntax:get_pos(FunName), function, {F, A}, Args) ]
                , FoldingRanges
                , ClausesPOIs
                ]).
