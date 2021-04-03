@@ -7,9 +7,8 @@
 %% Exports
 %%==============================================================================
 -export([ parse/1
-        , parse_old/1
-        , parse_erlfmt/1
         , parse_file/1
+        , parse_text/1
         ]).
 
 %%==============================================================================
@@ -17,83 +16,57 @@
 %%==============================================================================
 -include("els_lsp.hrl").
 
+-type deep_list(T) :: [T | deep_list(T)].
+
 %%==============================================================================
 %% API
 %%==============================================================================
 -spec parse(binary()) -> {ok, [poi()]}.
 parse(Text) ->
-  parse_erlfmt(Text).
-
-parse_old(Text) ->
-  IoDevice = els_io_string:new(Text),
-  parse_file(IoDevice).
-
-parse_erlfmt(Text) ->
   String = unicode:characters_to_list(Text),
   case erlfmt:read_nodes_string("nofile", String) of
     {ok, Forms, _ErrorInfo} ->
-      {ok, lists:flatten(parse_erlfmt_forms(Forms, String))};
-    {error, _ErrorInfo} = Error ->
-      Error
+      {ok, lists:flatten(parse_forms(Forms, String))};
+    {error, _ErrorInfo} ->
+      {ok, []}
   end.
 
--spec parse_file(file:io_device()) -> {ok, [poi()]}.
-parse_file(IoDevice) ->
-  {ok, NestedPOIs} = els_dodger:parse(IoDevice, {1, 1}, fun parse_form/3, []),
-  ok = file:close(IoDevice),
-  {ok, lists:flatten(NestedPOIs)}.
+-spec parse_file(file:name_all()) -> {ok, [tree()]} | {error, term()}.
+parse_file(FileName) ->
+  forms_to_ast(erlfmt:read_nodes(FileName)).
+
+-spec parse_text(binary()) -> {ok, [tree()]} | {error, term()}.
+parse_text(Text) ->
+  String = unicode:characters_to_list(Text),
+  forms_to_ast(erlfmt:read_nodes_string("nofile", String)).
+
+-spec forms_to_ast(tuple()) -> {ok, [tree()]} | {error, term()}.
+forms_to_ast({ok, Forms, _ErrorInfo}) ->
+  TreeList =
+    [els_erlfmt_ast:erlfmt_to_st(Form) || Form <- Forms],
+  {ok, TreeList};
+forms_to_ast({error, _ErrorInfo} = Error) ->
+  Error.
 
 %%==============================================================================
 %% Internal Functions
 %%==============================================================================
 
-%% Adapted from els_dodger
--spec parse_form(file:io_device(), any(), [any()]) ->
-    {'ok', erl_syntax:forms()
-  | none, integer()}
-  | {'eof', integer()}
-  | {'error', any(), integer()}.
-parse_form(IoDevice, Location, Options) ->
-  parse_form(IoDevice, Location, fun els_dodger:normal_parser/2, Options).
-
-%% Adapted from els_dodger
--spec parse_form(file:io_device(), any(), function(), [any()]) ->
-  {'ok', erl_syntax:forms() | none, integer()}
-  | {'eof', integer()}
-  | {'error', any(), integer()}.
-parse_form(IoDevice, StartLocation, Parser, _Options) ->
-  case io:scan_erl_form(IoDevice, "", StartLocation) of
-    {ok, Tokens, EndLocation} ->
-      try {ok, Parser(Tokens, undefined)} of
-        {ok, Tree} ->
-          POIs = [ find_attribute_pois(Tree, Tokens)
-                 , points_of_interest(Tree, EndLocation)
-                 ],
-          {ok, POIs, EndLocation}
-      catch
-        _:_ ->
-          {ok, find_attribute_tokens(Tokens), EndLocation}
-      end;
-    {error, _IoErr, _EndLocation} = Err -> Err;
-    {error, _Reason} -> {eof, StartLocation};
-    {eof, _EndLocation} = Eof -> Eof
-  end.
-
--spec parse_erlfmt_forms([erlfmt_parse:abstract_form()], string()) -> [[poi()]].
-parse_erlfmt_forms(Forms, Text) ->
+-spec parse_forms([erlfmt_parse:abstract_form()], string()) -> deep_list(poi()).
+parse_forms(Forms, Text) ->
   {ok, Tokens, _} = erl_scan:string(Text, {1, 1}, []),
   [begin
-     {ok, Pois, _} = parse_erlfmt_form(Form, Tokens),
+     {ok, Pois, _} = parse_form(Form, Tokens),
      Pois
    end || Form <- Forms].
 
--spec parse_erlfmt_form(erlfmt_parse:abstract_form(), [erl_scan:token()])
-                       -> {ok, [[poi()]], any()}.
-parse_erlfmt_form({raw_string, Anno, Text}, _Tokens) ->
+-spec parse_form(erlfmt_parse:abstract_form(), [erl_scan:token()])
+                       -> {ok, deep_list(poi()), any()}.
+parse_form({raw_string, Anno, Text}, _Tokens) ->
   Start = erlfmt_scan:get_anno(location, Anno),
   {ok, RangeTokens, EndLocation} = erl_scan:string(Text, Start, []),
   {ok, find_attribute_tokens(RangeTokens), EndLocation};
-parse_erlfmt_form(Form, Tokens) ->
+parse_form(Form, Tokens) ->
   %% TMP simulate EndLocation from erl_scan:tokens which is the next character
   %% of Text after a dot and whitespace (which terminates a form by definition)
   %% erlfmt_parse sets end_location of a form by just incrementing the column of
@@ -259,7 +232,7 @@ find_attribute_tokens([ {'-', Anno}, {atom, _, spec} | [_|_] = Rest]) ->
 find_attribute_tokens(_) ->
   [].
 
--spec points_of_interest(tree(), erl_anno:location()) -> [poi()].
+-spec points_of_interest(tree(), erl_anno:location()) -> [[poi()]].
 points_of_interest(Tree, EndLocation) ->
   FoldFun = fun(T, Acc) -> [do_points_of_interest(T, EndLocation) | Acc] end,
   fold(FoldFun, [], Tree).
