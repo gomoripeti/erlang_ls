@@ -146,13 +146,13 @@ erlfmt_to_st(Node) ->
         Tree;
       {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], empty} ->
         erl_syntax:set_pos(
-          erl_syntax:function_type([erlfmt_to_st(A) || A <- Args],
+          erl_syntax_function_type([erlfmt_to_st(A) || A <- Args],
                                    erlfmt_to_st(ReturnType)),
           Pos);
       {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], GuardOr} ->
         FunctionType =
           erl_syntax:set_pos(
-            erl_syntax:function_type([erlfmt_to_st(A) || A <- Args],
+            erl_syntax_function_type([erlfmt_to_st(A) || A <- Args],
                                      erlfmt_to_st(ReturnType)),
             Pos),
         FunctionConstraint = erlfmt_guard_to_st(GuardOr),
@@ -442,7 +442,7 @@ erlfmt_to_st(Node) ->
         erl_syntax:set_pos(erl_syntax:fun_type(), Pos);
       {'fun', Pos, {type, _, {args, _, Args}, Res}} ->
         erl_syntax:set_pos(
-          erl_syntax:function_type(
+          erl_syntax_function_type(
             [erlfmt_to_st(A) || A <- Args],
             erlfmt_to_st(Res)),
           Pos);
@@ -1210,3 +1210,9 @@ get_anno(Node) ->
 
 set_anno(Node, Loc) ->
     setelement(2, Node, Loc).
+
+%% @doc Silence warning about breaking the contract
+%% erl_syntax:function_type/2 has wrong spec before OTP 24
+-spec erl_syntax_function_type('any_arity' | [syntax_tools()], syntax_tools()) -> syntax_tools().
+erl_syntax_function_type(Arguments, Return) ->
+  apply(erl_syntax, function_type, [Arguments, Return]).
