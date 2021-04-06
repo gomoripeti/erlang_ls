@@ -52,11 +52,11 @@ forms_to_ast({error, _ErrorInfo} = Error) ->
 %% Internal Functions
 %%==============================================================================
 
--spec parse_forms([erlfmt_parse:abstract_form()]) -> deep_list(poi()).
+-spec parse_forms([erlfmt_parse:abstract_node()]) -> deep_list(poi()).
 parse_forms(Forms) ->
   [parse_form(Form) || Form <- Forms].
 
--spec parse_form(erlfmt_parse:abstract_form()) -> deep_list(poi()).
+-spec parse_form(erlfmt_parse:abstract_node()) -> deep_list(poi()).
 parse_form({raw_string, Anno, Text}) ->
   Start = erlfmt_scan:get_anno(location, Anno),
   {ok, RangeTokens, _EndLocation} = erl_scan:string(Text, Start, []),
