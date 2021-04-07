@@ -552,6 +552,7 @@ erlfmt_to_st(Node) ->
 
 %% assuming erl_parse format, compatible with erl_syntax
 %% TODO: should convert erlfmt anno to erl_syntax pos+annotation
+-spec erlfmt_to_st_1(_) -> any().
 erlfmt_to_st_1(Node) ->
     case erl_syntax:subtrees(Node) of
         [] ->
@@ -563,6 +564,7 @@ erlfmt_to_st_1(Node) ->
             erl_syntax:update_tree(Node, Groups1)
     end.
 
+-spec erlfmt_subtrees_to_st([[any()]]) -> [[any()]].
 erlfmt_subtrees_to_st(Groups) ->
     [
         [
@@ -572,6 +574,7 @@ erlfmt_subtrees_to_st(Groups) ->
         || Group <- Groups
     ].
 
+-spec get_function_name(maybe_improper_list()) -> any().
 get_function_name([{clause, _, {call, _, Name, _}, _, _} | _]) ->
     %% take the name node of the first clause with a call shape
     %% TODO: this loses info if not all clauses have the same name
@@ -593,6 +596,7 @@ get_function_name([]) ->
 %%    and simple `catch` clauses without `:`.
 
 %% TODO: can we preserve CPos/APos annotations here somehow?
+-spec erlfmt_clause_to_st(_) -> any().
 erlfmt_clause_to_st({clause, Pos, empty, Guard, Body}) ->
     erlfmt_clause_to_st(Pos, [], Guard, Body);
 erlfmt_clause_to_st({clause, Pos, {call, _CPos, _, Args}, Guard, Body}) ->
@@ -616,6 +620,7 @@ erlfmt_clause_to_st(Other) ->
     %% might be a macro call
     erlfmt_to_st(Other).
 
+-spec erlfmt_clause_to_st(_,[any()],_,[any()]) -> any().
 erlfmt_clause_to_st(Pos, Patterns, Guard, Body) ->
     Groups = [
         Patterns,
@@ -628,6 +633,7 @@ erlfmt_clause_to_st(Pos, Patterns, Guard, Body) ->
 %% are introduced to support annotating guard sequences, instead of a plain
 %% nested list of lists structure.
 
+-spec erlfmt_guard_to_st(_) -> any().
 erlfmt_guard_to_st(empty) ->
     none;
 erlfmt_guard_to_st({guard_or, Pos, List}) ->
@@ -649,9 +655,11 @@ erlfmt_guard_to_st({guard_and, Pos, List}) ->
 erlfmt_guard_to_st(Other) ->
     erlfmt_to_st(Other).
 
+-spec fold_arity_qualifiers(_) -> any().
 fold_arity_qualifiers(Tree) ->
     erl_syntax_lib:map(fun fold_arity_qualifier/1, Tree).
 
+-spec fold_arity_qualifier(_) -> any().
 fold_arity_qualifier(Node) ->
     case erl_syntax:type(Node) of
         infix_expr ->
@@ -983,6 +991,7 @@ st_to_erlfmt(Node) ->
             st_to_erlfmt_1(Node)
     end.
 
+-spec st_to_erlfmt_1(_) -> any().
 st_to_erlfmt_1(Node) ->
     %% TODO: should we convert full erl_syntax pos+annotation to erlfmt anno?
     Anno = erlfmt_anno(erl_syntax:get_pos(Node)),
@@ -1015,6 +1024,7 @@ st_to_erlfmt_1(Node) ->
             set_anno(Node1, Anno1)
     end.
 
+-spec st_subtrees_to_erlfmt(_) -> [[any()]].
 st_subtrees_to_erlfmt(Node) ->
     case erl_syntax:subtrees(Node) of
         [] ->
@@ -1029,13 +1039,16 @@ st_subtrees_to_erlfmt(Node) ->
             ]
     end.
 
+-spec dummy_anno() -> map().
 dummy_anno() ->
     erlfmt_anno(0).
 
+-spec dummy_anno(atom()) -> #{'text':=string(), _=>_}.
 dummy_anno(Text) when is_atom(Text) ->
     (erlfmt_anno(0))#{text => atom_to_list(Text)}.
 
 %% assumes that if the annotation is a map, it came from erlfmt_scan
+-spec erlfmt_anno(_) -> map().
 erlfmt_anno(Map) when is_map(Map) ->
     Map;
 erlfmt_anno(Line) ->
@@ -1046,10 +1059,12 @@ erlfmt_anno(Line) ->
         end_location => {Line, 1}
     }.
 
+-spec concat_to_erlfmt(_) -> {'concat',_,[any()]}.
 concat_to_erlfmt(Node) ->
     Es = [st_to_erlfmt(E) || E <- tl(erl_syntax:tuple_elements(Node))],
     {concat, erl_syntax:get_pos(Node), Es}.
 
+-spec st_clause_to_erlfmt(_,'case' | 'fun' | 'if' | 'try' | {'name',_}) -> any().
 st_clause_to_erlfmt(Clause, Kind) ->
     %% check for when a clause is not a clause
     case erl_syntax:type(Clause) of
@@ -1061,6 +1076,7 @@ st_clause_to_erlfmt(Clause, Kind) ->
             st_to_erlfmt(Clause)
     end.
 
+-spec st_clause_to_erlfmt_1(_,'case' | 'fun' | 'if' | 'try' | {'name',_}) -> {'clause',_,_,_,[any()]}.
 st_clause_to_erlfmt_1(Clause, Kind) ->
     Pos = erl_syntax:get_pos(Clause),
     Head =
@@ -1125,6 +1141,7 @@ st_clause_to_erlfmt_1(Clause, Kind) ->
     Body = [st_to_erlfmt(E) || E <- erl_syntax:clause_body(Clause)],
     {clause, Pos, Head, Guard, Body}.
 
+-spec st_guard_to_erlfmt(_) -> any().
 st_guard_to_erlfmt(Guard) ->
     Pos = erl_syntax:get_pos(Guard),
     case erl_syntax:type(Guard) of
@@ -1142,6 +1159,7 @@ st_guard_to_erlfmt(Guard) ->
             st_to_erlfmt(Guard)
     end.
 
+-spec st_typedecl_to_erlfmt({'atom',_,'type'},[any(),...],map()) -> {'attribute',map(),{'atom',_,'type'},[{_,_,_,_,_},...]}.
 st_typedecl_to_erlfmt({atom, _, type} = Tag, [Term], Pos) ->
     %% the argument is raw erl_parse data here, lifted to abstract form by
     %% erl_syntax, so it first needs to be made concrete again
@@ -1152,6 +1170,7 @@ st_typedecl_to_erlfmt({atom, _, type} = Tag, [Term], Pos) ->
     Def = {op, dummy_anno(), '::', {call, dummy_anno(), Name1, Args1}, Type1},
     {attribute, Pos, Tag, [Def]}.
 
+-spec set_line_from(_,_) -> any().
 set_line_from(FromNode, ToNode) ->
     ToPos = set_line_from_1(
         erl_syntax:get_pos(FromNode),
@@ -1159,6 +1178,7 @@ set_line_from(FromNode, ToNode) ->
     ),
     erl_syntax:set_pos(ToNode, ToPos).
 
+-spec set_line_from_1(#{'location':={_,_}, _=>_},_) -> #{'end_location':={_,_}, 'location':={_,_}, _=>_}.
 set_line_from_1(
     #{location := {L, _}},
     #{location := {_, C1}, end_location := {_, C2}} = ToPos
@@ -1168,16 +1188,19 @@ set_line_from_1(#{} = FromPos, ToPos) ->
     %% assume ToPos is not a map, so convert it
     set_line_from_1(FromPos, erlfmt_anno(ToPos)).
 
+-spec until(_,0 | 1,_) -> any().
 until(#{end_location := {L, C}}, N, ToPos) ->
     ToPos#{end_location => {L, C + N}};
 until(_FromPos, _N, ToPos) ->
     ToPos.
 
+-spec abswidth(1,_) -> any().
 abswidth(N, #{location := {L, C}} = Pos) ->
     Pos#{end_location => {L, C + N}};
 abswidth(_N, Pos) ->
     Pos.
 
+-spec right_pos(_,_) -> any().
 right_pos([], Default) ->
     Default;
 right_pos(Nodes, _Default) when is_list(Nodes) ->
@@ -1190,6 +1213,7 @@ right_pos(Node, Default) ->
     ).
 
 %% this would be good to have as a support function in erl_syntax
+-spec literal_text(_) -> any().
 literal_text(Node) ->
     case erl_syntax:type(Node) of
         atom -> erl_syntax:atom_literal(Node);
@@ -1205,9 +1229,11 @@ literal_text(Node) ->
 
 %% erlfmt ast utilities
 
+-spec get_anno(tuple()) -> any().
 get_anno(Node) ->
     element(2, Node).
 
+-spec set_anno(tuple(),map()) -> tuple().
 set_anno(Node, Loc) ->
     setelement(2, Node, Loc).
 
