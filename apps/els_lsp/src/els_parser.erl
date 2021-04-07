@@ -205,34 +205,12 @@ attribute(Tree) ->
       find_compile_options_pois(Arg);
     {AttrName, [Arg]} when AttrName =:= export;
                            AttrName =:= export_type ->
-      Exports = erl_syntax:list_elements(Arg),
-      EntryPoiKind = case AttrName of
-                       export      -> export_entry;
-                       export_type -> export_type_entry
-                     end,
-      ExportEntries =
-        [ try erl_syntax_lib:analyze_function_name(FATree) of
-            {F, A} ->
-              poi(erl_syntax:get_pos(FATree), EntryPoiKind, {F, A})
-          catch throw:syntax_error ->
-              []
-          end
-          || FATree <- Exports
-        ],
-      [ poi(Pos, AttrName, get_start_location(Tree))
-      | lists:flatten(ExportEntries) ];
+      find_export_pois(Tree, AttrName, Arg);
     {import, [ModTree, ImportList]} ->
       case is_atom_node(ModTree) of
         {true, M} ->
           Imports = erl_syntax:list_elements(ImportList),
-          [ try erl_syntax_lib:analyze_function_name(FATree) of
-              {F, A} ->
-                poi(erl_syntax:get_pos(FATree), import_entry, {M, F, A})
-            catch throw:syntax_error ->
-                []
-            end
-            || FATree <- Imports
-          ];
+          find_import_entry_pois(M, Imports);
         _ ->
           []
       end;
@@ -258,11 +236,13 @@ attribute(Tree) ->
               [case erl_syntax:type(F) of
                  record_field ->
                    FieldName = erl_syntax:record_field_name(F),
-                   {erl_syntax:atom_value(FieldName), erl_syntax:record_field_value(F)};
+                   {erl_syntax:atom_value(FieldName),
+                    erl_syntax:record_field_value(F)};
                  typed_record_field ->
                    FF = erl_syntax:typed_record_field_body(F),
                    FieldName = erl_syntax:record_field_name(FF),
-                   {erl_syntax:atom_value(FieldName), erl_syntax:record_field_value(FF)}
+                   {erl_syntax:atom_value(FieldName),
+                    erl_syntax:record_field_value(FF)}
                end
                || F <- erl_syntax:tuple_elements(Fields)]),
           [poi(erl_syntax:get_pos(Record), record, RecordName, FieldList)
@@ -283,8 +263,7 @@ attribute(Tree) ->
       end;
     {callback, [ArgTuple]} ->
       [FATree | _] = erl_syntax:tuple_elements(ArgTuple),
-      %% concrete will throw an error if `FATRee' contains any macro
-      try erl_syntax:concrete(FATree) of
+      case spec_function_name(FATree) of
         {F, A} ->
           [FTree, _] = erl_syntax:tuple_elements(FATree),
           Anno = erl_syntax:get_pos(FTree),
@@ -292,17 +271,16 @@ attribute(Tree) ->
           %% starts at '-', ends at the end of callback function name
           Start = get_start_location(Tree),
           CallbackAnno = erlfmt_scan:put_anno(location, Start, Anno),
-          [poi(CallbackAnno, callback, {F, A})]
-      catch _:_ ->
-          throw(syntax_error)
+          [poi(CallbackAnno, callback, {F, A})];
+        undefined ->
+          []
       end;
     {spec, [ArgTuple]} ->
       [FATree | _] = erl_syntax:tuple_elements(ArgTuple),
-      %% concrete will throw an error if `FATRee' contains any macro
-      try erl_syntax:concrete(FATree) of
+      case spec_function_name(FATree) of
         {F, A} ->
-          [poi(Pos, spec, {F, A})]
-      catch _:_ ->
+          [poi(Pos, spec, {F, A})];
+        undefined ->
           [poi(Pos, spec, undefined)]
       end;
     _ ->
@@ -336,6 +314,52 @@ find_compile_options_pois(Arg) ->
       []
   end.
 
+-spec find_export_pois(tree(), export | export_type, tree()) -> [poi()].
+find_export_pois(Tree, AttrName, Arg) ->
+  Exports = erl_syntax:list_elements(Arg),
+  EntryPoiKind = case AttrName of
+                   export      -> export_entry;
+                   export_type -> export_type_entry
+                 end,
+  ExportEntries = find_export_entry_pois(EntryPoiKind, Exports),
+  [ poi(erl_syntax:get_pos(Tree), AttrName, get_start_location(Tree))
+  | ExportEntries ].
+
+-spec find_export_entry_pois(export_entry | export_type_entry, [tree()])
+                            -> [poi()].
+find_export_entry_pois(EntryPoiKind, Exports) ->
+  lists:flatten(
+    [ try erl_syntax_lib:analyze_function_name(FATree) of
+        {F, A} ->
+          poi(erl_syntax:get_pos(FATree), EntryPoiKind, {F, A})
+      catch throw:syntax_error ->
+          []
+      end
+      || FATree <- Exports
+    ]).
+
+-spec find_import_entry_pois(atom(), [tree()]) -> [poi()].
+find_import_entry_pois(M, Imports) ->
+  lists:flatten(
+    [ try erl_syntax_lib:analyze_function_name(FATree) of
+        {F, A} ->
+          poi(erl_syntax:get_pos(FATree), import_entry, {M, F, A})
+      catch throw:syntax_error ->
+          []
+      end
+      || FATree <- Imports
+    ]).
+
+-spec spec_function_name(tree()) -> {atom(), arity()} | undefined.
+spec_function_name(FATree) ->
+  %% concrete will throw an error if `FATree' contains any macro
+  try erl_syntax:concrete(FATree) of
+    {F, A} -> {F, A};
+    _ -> undefined
+  catch _:_ ->
+      undefined
+  end.
+
 -spec type_args([any()]) -> [{integer(), string()}].
 type_args(Args) ->
   [ case erl_syntax:type(T) of
@@ -350,8 +374,8 @@ function(Tree) ->
   {F, A} = erl_syntax_lib:analyze_function(Tree),
   Clauses = erl_syntax:function_clauses(Tree),
   IndexedClauses = lists:zip(lists:seq(1, length(Clauses)), Clauses),
-  %% FIXME function_clause range should be the range of the name atom
-  %% however that is not present in the clause Tree (it is in the erlfmt_parse node)
+  %% FIXME function_clause range should be the range of the name atom however
+  %% that is not present in the clause Tree (it is in the erlfmt_parse node)
   ClausesPOIs = [ poi( get_start_location(Clause)
                      , function_clause
                      , {F, A, I}
@@ -713,11 +737,9 @@ attribute_subtrees(AttrName, [ArgTuple])
   case erl_syntax:type(ArgTuple) of
     tuple ->
       [FATree | Rest] = erl_syntax:tuple_elements(ArgTuple),
-      %% concrete will throw an error if `FATRee' contains any macro
-      [ try erl_syntax:concrete(FATree) of
-          {_, _} -> []
-        catch
-          _:_ -> [FATree]
+      [ case spec_function_name(FATree) of
+          {_, _} -> [];
+          undefined -> [FATree]
         end
       , Rest ];
     _ ->

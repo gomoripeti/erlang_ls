@@ -225,8 +225,8 @@ type_name_macro(_Config) ->
   ok.
 
 spec_name_macro(_Config) ->
-  %% Verify the parser does not crash on macros in spec function names
-  %% and it still returns an unnamed spec-context and POIs from the definition body
+  %% Verify the parser does not crash on macros in spec function names and it
+  %% still returns an unnamed spec-context and POIs from the definition body
   Text1 = "-spec ?M() -> integer() | t().",
   ?assertMatch([#{id := undefined}], parse_find_pois(Text1, spec)),
   ?assertMatch([_], parse_find_pois(Text1, type_application, {t, 0})),
