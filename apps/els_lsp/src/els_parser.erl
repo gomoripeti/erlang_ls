@@ -59,7 +59,7 @@ parse_forms(Forms) ->
 -spec parse_form(erlfmt_parse:abstract_node()) -> deep_list(poi()).
 parse_form({raw_string, Anno, Text}) ->
   Start = erlfmt_scan:get_anno(location, Anno),
-  {ok, RangeTokens, _EndLocation} = erl_scan:string(Text, Start, []),
+  {ok, RangeTokens, _EndLocation} = erl_scan:string(Text, Start, [text]),
   find_attribute_tokens(RangeTokens);
 parse_form(Form) ->
   Tree = els_erlfmt_ast:erlfmt_to_st(Form),
@@ -78,14 +78,25 @@ find_attribute_tokens([ {'-', Anno}, {atom, _, Name} | [_|_] = Rest])
   when Name =:= export;
        Name =:= export_type ->
   From = erl_anno:location(Anno),
-  To = erl_scan:location(lists:last(Rest)),
+  To = token_end_location(lists:last(Rest)),
   [poi({From, To}, Name, From)];
 find_attribute_tokens([ {'-', Anno}, {atom, _, spec} | [_|_] = Rest]) ->
   From = erl_anno:location(Anno),
-  To = erl_scan:location(lists:last(Rest)),
+  To = token_end_location(lists:last(Rest)),
   [poi({From, To}, spec, undefined)];
 find_attribute_tokens(_) ->
   [].
+
+%% Inspired by erlfmt_scan:dot_anno
+-spec token_end_location(erl_scan:token()) -> erl_anno:location().
+token_end_location({dot, Anno}) ->
+  %% Special handling for dot tokens, which by definition contain a dot char
+  %% followed by a whitespace char. We don't want to count the whitespace (which
+  %% is usually a newline) as part of the form.
+  {Line, Col} = erl_anno:location(Anno),
+  {Line, Col + 1};
+token_end_location(Token) ->
+  erl_scan:end_location(Token).
 
 -spec points_of_interest(tree()) -> [[poi()]].
 points_of_interest(Tree) ->
