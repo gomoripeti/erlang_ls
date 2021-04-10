@@ -281,7 +281,7 @@ attribute(Tree) ->
           %% FIXME this is weird:
           %% starts at '-', ends at the end of callback function name
           Start = get_start_location(Tree),
-          CallbackAnno = erlfmt_scan:put_anno(location, Start, Anno),
+          CallbackAnno = erl_anno:set_location(Start, Anno),
           [poi(CallbackAnno, callback, {F, A})];
         undefined ->
           []
@@ -612,11 +612,11 @@ is_atom_node(Tree) ->
       false
   end.
 
--spec poi(pos() | {pos(), pos()}, poi_kind(), any()) -> poi().
+-spec poi(pos() | {pos(), pos()} | erl_anno:anno(), poi_kind(), any()) -> poi().
 poi(Pos, Kind, Id) ->
   poi(Pos, Kind, Id, undefined).
 
--spec poi(pos() | {pos(), pos()}, poi_kind(), any(), any()) ->
+-spec poi(pos() | {pos(), pos()} | erl_anno:anno(), poi_kind(), any(), any()) ->
   poi().
 poi(Pos, Kind, Id, Data) ->
   Range = els_range:range(Pos, Kind, Id, Data),
@@ -831,22 +831,22 @@ pretty_print_clause(Tree) ->
                                 ]),
   els_utils:to_binary(PrettyClause).
 
--spec record_access_location(tree()) -> erl_anno:location().
+-spec record_access_location(tree()) -> erl_anno:anno().
 record_access_location(Tree) ->
   %% erlfmt_parser sets start at the start of the argument expression
   %% we don't have an exact location of '#'
   %% best approximation is the end of the argument
   Start = get_end_location(erl_syntax:record_access_argument(Tree)),
   Anno = erl_syntax:get_pos(erl_syntax:record_access_type(Tree)),
-  erlfmt_scan:put_anno(location, Start, Anno).
+  erl_anno:set_location(Start, Anno).
 
--spec record_expr_location(tree(), tree()) -> erl_anno:location().
+-spec record_expr_location(tree(), tree()) -> erl_anno:anno().
 record_expr_location(Tree, RecordName) ->
   %% set start location at '#'
   %% and end location at the end of record name
   Start = record_expr_start_location(Tree),
   Anno = erl_syntax:get_pos(RecordName),
-  erlfmt_scan:put_anno(location, Start, Anno).
+  erl_anno:set_location(Start, Anno).
 
 -spec record_expr_start_location(tree()) -> erl_anno:location().
 record_expr_start_location(Tree) ->
@@ -867,7 +867,7 @@ record_expr_start_location(Tree) ->
       get_start_location(Tree)
   end.
 
--spec macro_location(tree()) -> erl_anno:location().
+-spec macro_location(tree()) -> erl_anno:anno().
 macro_location(Tree) ->
   %% set start location at '?'
   %% and end location at the end of macro name
@@ -875,30 +875,14 @@ macro_location(Tree) ->
   Start = get_start_location(Tree),
   MacroName = erl_syntax:macro_name(Tree),
   Anno = erl_syntax:get_pos(MacroName),
-  erlfmt_scan:put_anno(location, Start, Anno).
+  erl_anno:set_location(Start, Anno).
 
 -spec get_start_location(tree()) -> erl_anno:location().
 get_start_location(Tree) ->
-  get_anno(location, erl_syntax:get_pos(Tree)).
+  erl_anno:location(erl_syntax:get_pos(Tree)).
 
 -spec get_end_location(tree()) -> erl_anno:location().
 get_end_location(Tree) ->
-  get_anno(end_location, erl_syntax:get_pos(Tree)).
-
--spec get_anno(atom(), erl_anno:anno() | map()) -> term().
-get_anno(location, Anno) when is_map(Anno) ->
-  case maps:is_key(pre_comments, Anno) of
-    true ->
-      maps:get(inner_location, Anno);
-    false ->
-      maps:get(location, Anno)
-  end;
-get_anno(end_location, Anno) when is_map(Anno) ->
-  case maps:is_key(post_comments, Anno) of
-    true ->
-      maps:get(inner_end_location, Anno);
-    false ->
-      maps:get(end_location, Anno)
-  end;
-get_anno(location, Anno) ->
-  erl_anno:location(Anno).
+  %% erl_anno:end_location(erl_syntax:get_pos(Tree)).
+  Anno = erl_syntax:get_pos(Tree),
+  proplists:get_value(end_location, erl_anno:to_term(Anno)).

@@ -16,7 +16,8 @@
 
 -module(els_erlfmt_ast).
 
--export([erlfmt_to_st/1, st_to_erlfmt/1]).
+-export([erlfmt_to_st/1]).
+%%-export([st_to_erlfmt/1]).
 
 % dialyzer hates erlfmt_parse:abstract_node()
 -type erlfmt() :: term().
@@ -56,7 +57,7 @@ erlfmt_to_st(Node) ->
 
         %% raw strings only occur as forms, for when parsing the form failed
         {raw_string, Pos, Text} ->
-            erl_syntax:set_pos(erl_syntax:text("\n>>>>\n" ++ Text ++ "\n<<<<\n"), Pos);
+            update_tree_with_meta(erl_syntax:text("\n>>>>\n" ++ Text ++ "\n<<<<\n"), Pos);
         %% A new node `{macro_call, Anno, Name, Args}` is introduced, where
         %% `Name` is either an `atom` or a `var` node and `Args` is a list of
         %% expressions, types, or special `op` nodes with `'when'` operator.
@@ -66,7 +67,7 @@ erlfmt_to_st(Node) ->
                     none -> none;
                     _ -> [erlfmt_to_st(A) || A <- Args]
                 end,
-            erl_syntax:set_pos(erl_syntax:macro(erlfmt_to_st(Name), Args1), Pos);
+            update_tree_with_meta(erl_syntax:macro(erlfmt_to_st(Name), Args1), Pos);
         %% The value of an attribute node is always a list of abstract term
         %% formats instead of concrete terms. The name is always represented
         %% as a full `atom` node.
@@ -82,7 +83,7 @@ erlfmt_to_st(Node) ->
                         put('$erlfmt_ast_context$', type),
                         T1 = erlfmt_to_st(T),
                         erase('$erlfmt_ast_context$'),
-                        erl_syntax:set_pos(
+                        update_tree_with_meta(
                             erl_syntax:typed_record_field(B1, T1),
                             FPos
                         );
@@ -91,8 +92,8 @@ erlfmt_to_st(Node) ->
                 end
                 || F <- Fields
             ],
-            Tuple1 = erl_syntax:set_pos(erl_syntax:tuple(Fields1), TPos),
-            erl_syntax:set_pos(
+            Tuple1 = update_tree_with_meta(erl_syntax:tuple(Fields1), TPos),
+            update_tree_with_meta(
                 erl_syntax:attribute(
                     erlfmt_to_st(Tag),
                     [
@@ -118,9 +119,9 @@ erlfmt_to_st(Node) ->
               {TypeName0, Args0}
           end,
         Tree =
-          erl_syntax:set_pos(
+          update_tree_with_meta(
             erl_syntax:attribute(erlfmt_to_st(Name),
-                                 [erl_syntax:set_pos(
+                                 [update_tree_with_meta(
                                     erl_syntax:tuple([erlfmt_to_st(TypeName),
                                                       erlfmt_to_st(Definition),
                                                       erl_syntax:list([erlfmt_to_st(A) || A <- Args])]),
@@ -135,9 +136,9 @@ erlfmt_to_st(Node) ->
         {spec_clause, _, {args, _, ClauseArgs}, _, _} = hd(Clauses),
         Arity = length(ClauseArgs),
         Tree =
-          erl_syntax:set_pos(
+          update_tree_with_meta(
             erl_syntax:attribute(erlfmt_to_st(Name),
-                                 [erl_syntax:set_pos(
+                                 [update_tree_with_meta(
                                     erl_syntax:tuple([erl_syntax:tuple([erlfmt_to_st(FName), erl_syntax:integer(Arity)]),
                                                       erl_syntax:list([erlfmt_to_st(C) || C <- Clauses])]),
                                        SPos)]),
@@ -145,34 +146,34 @@ erlfmt_to_st(Node) ->
         erase('$erlfmt_ast_context$'),
         Tree;
       {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], empty} ->
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax_function_type([erlfmt_to_st(A) || A <- Args],
                                    erlfmt_to_st(ReturnType)),
           Pos);
       {spec_clause, Pos, {args, _HeadMeta, Args}, [ReturnType], GuardOr} ->
         FunctionType =
-          erl_syntax:set_pos(
+          update_tree_with_meta(
             erl_syntax_function_type([erlfmt_to_st(A) || A <- Args],
                                      erlfmt_to_st(ReturnType)),
             Pos),
         FunctionConstraint = erlfmt_guard_to_st(GuardOr),
 
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax:constrained_function_type(FunctionType, [FunctionConstraint]),
           Pos);
       {op, Pos, '|', A, B} when Context =:= type ->
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax:type_union([erlfmt_to_st(A),
                                  erlfmt_to_st(B)]),
           Pos);
       {op, Pos, '..', A, B} when Context =:= type ->
         %% erlfmt_to_st_1({type, Pos, range, [A, B]}),
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax:integer_range_type(erlfmt_to_st(A),
                                         erlfmt_to_st(B)),
           Pos);
       %%{op, Pos, '::', A, B} when Context =:= type ->
-      %%  erl_syntax:set_pos(
+      %%  update_tree_with_meta(
       %%    erl_syntax:annotated_type(erlfmt_to_st(A),
       %%                              erlfmt_to_st(B)),
       %%    Pos);
@@ -184,7 +185,7 @@ erlfmt_to_st(Node) ->
                      {op, FPos, '::', B, T} ->
                        B1 = erlfmt_to_st(B),
                        T1 = erlfmt_to_st(T),
-                       erl_syntax:set_pos(
+                       update_tree_with_meta(
                          erl_syntax:record_type_field(B1, T1),
                          FPos
                         );
@@ -194,7 +195,7 @@ erlfmt_to_st(Node) ->
                    || F <- Fields
                   ],
 
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax:record_type(
             erlfmt_to_st(Name),
             Fields1
@@ -202,7 +203,7 @@ erlfmt_to_st(Node) ->
           Pos
          );
       {call, Pos, {remote, _, _, _} = Name, Args} when Context =:= type->
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax:type_application(erlfmt_to_st(Name),
                                       [erlfmt_to_st(A) || A <- Args]),
           Pos);
@@ -220,7 +221,7 @@ erlfmt_to_st(Node) ->
             _ ->
               user_type_application
           end,
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax:TypeTag(erlfmt_to_st(Name),
                              [erlfmt_to_st(A) || A <- Args]),
           Pos);
@@ -229,7 +230,7 @@ erlfmt_to_st(Node) ->
             %% closing parens following after the comma); we must turn the
             %% atom 'empty' into a proper node here
             Body = erl_syntax:set_pos(erl_syntax:text(""), dummy_anno()),
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:attribute(
                     erlfmt_to_st(Tag),
                     [
@@ -241,7 +242,7 @@ erlfmt_to_st(Node) ->
             );
         {attribute, Pos, Name, no_parens} ->
             %% a directive without parentheses, like -endif.
-            erl_syntax:set_pos(erl_syntax:attribute(erlfmt_to_st(Name)), Pos);
+            update_tree_with_meta(erl_syntax:attribute(erlfmt_to_st(Name)), Pos);
         %% Attributes are not processed to convert the `fun/arity` syntax into
         %% tuples, they are left as the `op` nodes with the `/` operator.
         %% Additionally, the `import` and `export` attributes are not
@@ -251,7 +252,7 @@ erlfmt_to_st(Node) ->
             %% general attributes -Name(Arg1, ... ArgN)
             %% (Name is not a naked atom, so Node is not erl_parse compatible)
             Args1 = [fold_arity_qualifiers(erlfmt_to_st(A)) || A <- Args],
-            erl_syntax:set_pos(erl_syntax:attribute(erlfmt_to_st(Name), Args1), Pos);
+            update_tree_with_meta(erl_syntax:attribute(erlfmt_to_st(Name), Args1), Pos);
         %% The `function` node has a different AST representation: `{function,
         %% Anno, Clauses}`, where `Clauses` is a list of `clause` nodes or
         %% `macro_call` nodes. Additionally it is less strict - it does not
@@ -264,7 +265,7 @@ erlfmt_to_st(Node) ->
                     %% as the function name
                     Clauses1 = [erlfmt_to_st(C) || C <- Clauses],
                     Name = erl_syntax:set_pos(erl_syntax:text(""), dummy_anno()),
-                    erl_syntax:set_pos(
+                    update_tree_with_meta(
                         erl_syntax:function(
                             Name,
                             Clauses1
@@ -273,7 +274,7 @@ erlfmt_to_st(Node) ->
                     );
                 Name ->
                     Clauses1 = [erlfmt_clause_to_st(C) || C <- Clauses],
-                    erl_syntax:set_pos(
+                    update_tree_with_meta(
                         erl_syntax:function(
                             erlfmt_to_st(Name),
                             Clauses1
@@ -297,7 +298,7 @@ erlfmt_to_st(Node) ->
                             []
                         end,
             After1 = [erlfmt_to_st(E) || E <- After],
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:try_expr(
                     Body1,
                     Clauses1,
@@ -329,12 +330,12 @@ erlfmt_to_st(Node) ->
                         {Elements, none}
                 end,
             Es1 = [erlfmt_to_st(E) || E <- Es],
-            erl_syntax:set_pos(erl_syntax:list(Es1, Tail), Pos);
+            update_tree_with_meta(erl_syntax:list(Es1, Tail), Pos);
         %% The record name is always represented as node instead of a raw atom
         {record, Pos, Name, Fields} ->
             % a new record instance
             Fields1 = [erlfmt_to_st(F) || F <- Fields],
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:record_expr(
                     erlfmt_to_st(Name),
                     Fields1
@@ -344,7 +345,7 @@ erlfmt_to_st(Node) ->
         {record, Pos, Expr, Name, Fields} ->
             % updating a record
             Fields1 = [erlfmt_to_st(F) || F <- Fields],
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:record_expr(
                     erlfmt_to_st(Expr),
                     erlfmt_to_st(Name),
@@ -354,10 +355,10 @@ erlfmt_to_st(Node) ->
             );
         {record_field, Pos, Name} ->
             %% a record field without value, just the field name
-            erl_syntax:set_pos(erl_syntax:record_field(erlfmt_to_st(Name)), Pos);
+            update_tree_with_meta(erl_syntax:record_field(erlfmt_to_st(Name)), Pos);
         {record_field, Pos, Name, Value} ->
             %% a record field "name = val"
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:record_field(
                     erlfmt_to_st(Name),
                     erlfmt_to_st(Value)
@@ -366,7 +367,7 @@ erlfmt_to_st(Node) ->
             );
         {record_field, Pos, Expr, Record, Field} ->
             %% a record field access expression "expr#record.field"
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:record_access(
                     erlfmt_to_st(Expr),
                     erlfmt_to_st(Record),
@@ -376,7 +377,7 @@ erlfmt_to_st(Node) ->
             );
         {record_index, Pos, Record, Field} ->
             %% a record field index "#record.field"
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:record_index_expr(
                     erlfmt_to_st(Record),
                     erlfmt_to_st(Field)
@@ -406,7 +407,7 @@ erlfmt_to_st(Node) ->
             case Head of
                 {call, _, Name, _} ->
                     %% if the head has function call shape, it's a named fun
-                    erl_syntax:set_pos(
+                    update_tree_with_meta(
                         erl_syntax:named_fun_expr(
                             erlfmt_to_st(Name),
                             Clauses1
@@ -414,20 +415,20 @@ erlfmt_to_st(Node) ->
                         Pos
                     );
                 _ ->
-                    erl_syntax:set_pos(erl_syntax:fun_expr(Clauses1), Pos)
+                    update_tree_with_meta(erl_syntax:fun_expr(Clauses1), Pos)
             end;
         {'fun', Pos, {function, FPos, Name, Arity}} ->
-            FName = erl_syntax:set_pos(
+            FName = update_tree_with_meta(
                 erl_syntax:arity_qualifier(
                     erlfmt_to_st(Name),
                     erlfmt_to_st(Arity)
                 ),
                 FPos
             ),
-            erl_syntax:set_pos(erl_syntax:implicit_fun(FName), Pos);
+            update_tree_with_meta(erl_syntax:implicit_fun(FName), Pos);
         {'fun', Pos, {function, FPos, Module, Name, Arity}} ->
             %% note that the inner arity qualifier gets no annotation
-            FName = erl_syntax:set_pos(
+            FName = update_tree_with_meta(
                 erl_syntax:module_qualifier(
                     erlfmt_to_st(Module),
                     erl_syntax:arity_qualifier(
@@ -437,11 +438,11 @@ erlfmt_to_st(Node) ->
                 ),
                 FPos
             ),
-            erl_syntax:set_pos(erl_syntax:implicit_fun(FName), Pos);
+            update_tree_with_meta(erl_syntax:implicit_fun(FName), Pos);
       {'fun', Pos, type} ->
-        erl_syntax:set_pos(erl_syntax:fun_type(), Pos);
+        update_tree_with_meta(erl_syntax:fun_type(), Pos);
       {'fun', Pos, {type, _, {args, _, Args}, Res}} ->
-        erl_syntax:set_pos(
+        update_tree_with_meta(
           erl_syntax_function_type(
             [erlfmt_to_st(A) || A <- Args],
             erlfmt_to_st(Res)),
@@ -453,7 +454,7 @@ erlfmt_to_st(Node) ->
             Types1 = lists:map(
                 fun
                     ({remote, QPos, {atom, _, _} = A, {integer, _, _} = I}) ->
-                        erl_syntax:set_pos(
+                        update_tree_with_meta(
                             erl_syntax:size_qualifier(
                                 erlfmt_to_st(A),
                                 erlfmt_to_st(I)
@@ -470,7 +471,7 @@ erlfmt_to_st(Node) ->
                     default -> none;
                     _ -> erlfmt_to_st(Size)
                 end,
-            erl_syntax:set_pos(
+            update_tree_with_meta(
                 erl_syntax:binary_field(
                     erlfmt_to_st(Expr),
                     Size1,
@@ -530,7 +531,7 @@ erlfmt_to_st(Node) ->
         %% sometimes erlfmt leaves comments as separate nodes
         %% instead of attaching them to another node
         {comment, Pos, Lines} ->
-            erl_syntax:set_pos(erl_syntax:comment(Lines), Pos);
+            update_tree_with_meta(erl_syntax:comment(Lines), Pos);
         %% erlfmt has a separate entry for shebang nodes; we use raw strings
         {shebang, Pos, Text} ->
             erlfmt_to_st({raw_string, Pos, Text});
@@ -550,10 +551,19 @@ erlfmt_to_st(Node) ->
             erlfmt_to_st_1(Node)
     end.
 
-%% assuming erl_parse format, compatible with erl_syntax
-%% TODO: should convert erlfmt anno to erl_syntax pos+annotation
--spec erlfmt_to_st_1(_) -> any().
+%% erl_parse format is compatible with erl_syntax
+%% But since OTP 24 erl_syntax expects a proper erl_anno:anno() in pos.
+%% So first replace the Meta from Node with proper erl_syntax pos+annotation to
+%% make dialyzer happy.
+-spec erlfmt_to_st_1(erlfmt() | syntax_tools()) -> syntax_tools().
+erlfmt_to_st_1(Node) when is_map(element(2, Node))->
+  Node2 = convert_meta_to_anno(Node),
+  erlfmt_to_st_2(Node2);
 erlfmt_to_st_1(Node) ->
+  erlfmt_to_st_2(Node).
+
+-spec erlfmt_to_st_2(syntax_tools()) -> syntax_tools().
+erlfmt_to_st_2(Node) ->
     case erl_syntax:subtrees(Node) of
         [] ->
             % leaf node
@@ -609,9 +619,9 @@ erlfmt_clause_to_st({clause, Pos, {'catch', APos, Args}, Guard, Body}) ->
     Pattern =
         case [erlfmt_to_st(A) || A <- Args] of
             [Class, Term] ->
-                erl_syntax:set_pos(erl_syntax:class_qualifier(Class, Term), APos);
+                update_tree_with_meta(erl_syntax:class_qualifier(Class, Term), APos);
             [Class, Term, Trace] ->
-                erl_syntax:set_pos(erl_syntax:class_qualifier(Class, Term, Trace), APos)
+                update_tree_with_meta(erl_syntax:class_qualifier(Class, Term, Trace), APos)
         end,
     erlfmt_clause_to_st(Pos, [Pattern], Guard, Body);
 erlfmt_clause_to_st({clause, Pos, Expr, Guard, Body}) ->
@@ -627,7 +637,7 @@ erlfmt_clause_to_st(Pos, Patterns, Guard, Body) ->
         [erlfmt_guard_to_st(Guard)],
         [erlfmt_to_st(B) || B <- Body]
     ],
-    erl_syntax:set_pos(erl_syntax:make_tree(clause, Groups), Pos).
+    update_tree_with_meta(erl_syntax:make_tree(clause, Groups), Pos).
 
 %% New `{guard_or, Anno, GuardAndList}` and `{guard_and, Anno, Exprs}` nodes
 %% are introduced to support annotating guard sequences, instead of a plain
@@ -637,7 +647,7 @@ erlfmt_clause_to_st(Pos, Patterns, Guard, Body) ->
 erlfmt_guard_to_st(empty) ->
     none;
 erlfmt_guard_to_st({guard_or, Pos, List}) ->
-    erl_syntax:set_pos(
+    update_tree_with_meta(
         erl_syntax:disjunction([
             erlfmt_guard_to_st(E)
             || E <- List
@@ -645,7 +655,7 @@ erlfmt_guard_to_st({guard_or, Pos, List}) ->
         Pos
     );
 erlfmt_guard_to_st({guard_and, Pos, List}) ->
-    erl_syntax:set_pos(
+    update_tree_with_meta(
         erl_syntax:conjunction([
             erlfmt_guard_to_st(E)
             || E <- List
@@ -690,550 +700,554 @@ fold_arity_qualifier(Node) ->
             Node
     end.
 
--spec st_to_erlfmt(Node :: syntax_tools()) -> erlfmt().
-%% @doc Convert from Syntax Tools ASTs to erlfmt ASTs.
+%% syntax_tree -> erlfmt conversion is not used in erlang_ls
+%% commented out to skip fixing dialyzer warnings
+%%  about erl_syntax:get_pos/set_pos
 
-%% this becomes much like erl_syntax:revert/1, though erlfmt is much closer to
-%% the representation already used by erl_syntax, so we don't need to do so
-%% heavy rewritings, for example for record fields
-%% (note that erl_syntax:revert/1 is idempotent and does not do any
-%% additional work if the node is no longer an erl_syntax abstract tree,
-%% so erlfmt tuples can safely also be passed to revert)
+%% -spec st_to_erlfmt(Node :: syntax_tools()) -> erlfmt().
+%% %% @doc Convert from Syntax Tools ASTs to erlfmt ASTs.
+%%
+%% %% this becomes much like erl_syntax:revert/1, though erlfmt is much closer to
+%% %% the representation already used by erl_syntax, so we don't need to do so
+%% %% heavy rewritings, for example for record fields
+%% %% (note that erl_syntax:revert/1 is idempotent and does not do any
+%% %% additional work if the node is no longer an erl_syntax abstract tree,
+%% %% so erlfmt tuples can safely also be passed to revert)
+%%
+%% st_to_erlfmt(Node) ->
+%%     %% the input node might be either plain old Abstract Format tuples or
+%%     %% an erl_syntax abstract syntax tree; in either case we must decompose
+%%     %% and recurse to ensure the whole tree is converted to erlfmt tuples
+%%     Pos = erlfmt_anno(erl_syntax:get_pos(Node)),
+%%     case erl_syntax:type(Node) of
+%%         text ->
+%%             case erl_syntax:text_string(Node) of
+%%                 "\n>>>>\n" ++ Text0 ->
+%%                     %% note that erlfmt only accepts raw_string as a form
+%%                     "\n<<<<\n" ++ RText = lists:reverse(Text0),
+%%                     case lists:reverse(RText) of
+%%                         "[[reparse]]" ++ Rest ->
+%%                             case erlfmt:read_nodes_string("nofile", Rest) of
+%%                                 {ok, [Form], []} ->
+%%                                     Form;
+%%                                 _ ->
+%%                                     {raw_string, Pos, Rest}
+%%                             end;
+%%                         "#!" ++ _ = Rest ->
+%%                             {shebang, Pos, Rest};
+%%                         Rest ->
+%%                             {raw_string, Pos, Rest}
+%%                     end;
+%%                 "" ->
+%%                     %% assume this is an empty define body or similar
+%%                     empty
+%%             end;
+%%         attribute ->
+%%             Args0 = erl_syntax:attribute_arguments(Node),
+%%             Name = st_to_erlfmt(erl_syntax:attribute_name(Node)),
+%%             case {Args0, Name} of
+%%                 {none, _} ->
+%%                     {attribute, Pos, Name, no_parens};
+%%                 {_, {atom, _, T}} when T =:= type; T =:= opaque; T =:= spec; T =:= callback ->
+%%                     %% types and specs need special handling, particularly
+%%                     %% since erl_syntax currently treats them as wild attrs
+%%                     st_typedecl_to_erlfmt(Name, Args0, Pos);
+%%                 _ ->
+%%                     Args = [st_to_erlfmt(A) || A <- Args0],
+%%                     {attribute, Pos, Name, Args}
+%%             end;
+%%         function ->
+%%             Name = erl_syntax:function_name(Node),
+%%             Clauses = erl_syntax:function_clauses(Node),
+%%             {function, Pos, [
+%%                 st_clause_to_erlfmt(C, {name, Name})
+%%                 || C <- Clauses
+%%             ]};
+%%         clause ->
+%%             st_clause_to_erlfmt(Node, 'fun');
+%%         nil ->
+%%             {list, Pos, []};
+%%         list ->
+%%             Prefix = [st_to_erlfmt(E) || E <- erl_syntax:list_prefix(Node)],
+%%             Elements =
+%%                 case erl_syntax:list_suffix(Node) of
+%%                     none ->
+%%                         Prefix;
+%%                     Suffix ->
+%%                         [Last | RestRev] = lists:reverse(Prefix),
+%%                         Rest = lists:reverse(RestRev),
+%%                         %% have to figure out start and end of cons node
+%%                         LPos = get_anno(Last),
+%%                         SPos = erl_syntax:get_pos(Suffix),
+%%                         CPos = until(SPos, 0, LPos),
+%%                         Rest ++ [{cons, CPos, Last, st_to_erlfmt(Suffix)}]
+%%                 end,
+%%             {list, Pos, Elements};
+%%         tuple ->
+%%             %% check for magic tuple tags
+%%             case erl_syntax:tuple_elements(Node) of
+%%                 [A | Rest] ->
+%%                     case erl_syntax:type(A) of
+%%                         atom ->
+%%                             case erl_syntax:atom_value(A) of
+%%                                 '*concat*' ->
+%%                                     concat_to_erlfmt(Node);
+%%                                 '*stringify*' ->
+%%                                     [Name] = Rest,
+%%                                     {macro_string, Pos, st_to_erlfmt(Name)};
+%%                                 '*when*' ->
+%%                                     [Expr, Guard] = Rest,
+%%                                     {op, Pos, 'when', st_to_erlfmt(Expr), st_to_erlfmt(Guard)};
+%%                                 '*guard_or*' ->
+%%                                     Exprs = [st_to_erlfmt(E) || E <- Rest],
+%%                                     {guard_or, Pos, Exprs};
+%%                                 '*guard_and*' ->
+%%                                     Exprs = [st_to_erlfmt(E) || E <- Rest],
+%%                                     {guard_and, Pos, Exprs};
+%%                                 '*record_name*' ->
+%%                                     [Name] = Rest,
+%%                                     {record_name, Pos, st_to_erlfmt(Name)};
+%%                                 '*named_clause*' ->
+%%                                     [Name, Clause] = Rest,
+%%                                     Name1 = st_to_erlfmt(Name),
+%%                                     {clause, CPos, {args, APos, Args}, Guard, Body} = st_to_erlfmt(
+%%                                         Clause
+%%                                     ),
+%%                                     {clause, CPos, {call, APos, Name1, Args}, Guard, Body};
+%%                                 '*...*' when Rest =:= [] ->
+%%                                     {'...', Pos};
+%%                                 '*exprs*' ->
+%%                                     Exprs = [st_to_erlfmt(E) || E <- Rest],
+%%                                     {exprs, Pos, Exprs};
+%%                                 '*body*' ->
+%%                                     Exprs = [st_to_erlfmt(E) || E <- Rest],
+%%                                     {body, Pos, Exprs};
+%%                                 '*args*' ->
+%%                                     Exprs = [st_to_erlfmt(E) || E <- Rest],
+%%                                     {args, Pos, Exprs};
+%%                                 _ ->
+%%                                     st_to_erlfmt_1(Node)
+%%                             end;
+%%                         _ ->
+%%                             st_to_erlfmt_1(Node)
+%%                     end;
+%%                 _ ->
+%%                     st_to_erlfmt_1(Node)
+%%             end;
+%%         match_expr ->
+%%             [[Left], [Right]] = st_subtrees_to_erlfmt(Node),
+%%             {op, Pos, '=', Left, Right};
+%%         'catch_expr' ->
+%%             [[Expr]] = st_subtrees_to_erlfmt(Node),
+%%             {op, Pos, 'catch', Expr};
+%%         record_field ->
+%%             case st_subtrees_to_erlfmt(Node) of
+%%                 [[Name]] ->
+%%                     {record_field, Pos, Name};
+%%                 [[Name], [Value]] ->
+%%                     {record_field, Pos, Name, Value}
+%%             end;
+%%         record_expr ->
+%%             case st_subtrees_to_erlfmt(Node) of
+%%                 [[Type], Fields] ->
+%%                     {record, Pos, Type, Fields};
+%%                 [[Expr], [Type], Fields] ->
+%%                     {record, Pos, Expr, Type, Fields}
+%%             end;
+%%         record_access ->
+%%             [[Expr], [Type], [Field]] = st_subtrees_to_erlfmt(Node),
+%%             {record_field, Pos, Expr, Type, Field};
+%%         record_index_expr ->
+%%             [[Type], [Field]] = st_subtrees_to_erlfmt(Node),
+%%             {record_index, Pos, Type, Field};
+%%         arity_qualifier ->
+%%             %% this handles arity qualifiers in attributes like exports
+%%             [[{atom, FPos, F}], [{integer, APos, A}]] = st_subtrees_to_erlfmt(Node),
+%%             {op, Pos, '/', {atom, erlfmt_anno(FPos), F}, {integer, erlfmt_anno(APos), A}};
+%%         fun_expr ->
+%%             Clauses = erl_syntax:fun_expr_clauses(Node),
+%%             CAnno = dummy_anno(),
+%%             {'fun', Pos,
+%%                 {clauses, CAnno, [
+%%                     st_clause_to_erlfmt(C, 'fun')
+%%                     || C <- Clauses
+%%                 ]}};
+%%         named_fun_expr ->
+%%             Clauses = erl_syntax:named_fun_expr_clauses(Node),
+%%             Name = erl_syntax:named_fun_expr_name(Node),
+%%             CAnno = dummy_anno(),
+%%             {'fun', Pos,
+%%                 {clauses, CAnno, [
+%%                     st_clause_to_erlfmt(C, {name, Name})
+%%                     || C <- Clauses
+%%                 ]}};
+%%         implicit_fun ->
+%%             Name = erl_syntax:implicit_fun_name(Node),
+%%             FAnno = erl_syntax:get_pos(Node),
+%%             case erl_syntax:type(Name) of
+%%                 arity_qualifier ->
+%%                     F = st_to_erlfmt(erl_syntax:arity_qualifier_body(Name)),
+%%                     A = st_to_erlfmt(erl_syntax:arity_qualifier_argument(Name)),
+%%                     {'fun', Pos, {function, FAnno, F, A}};
+%%                 module_qualifier ->
+%%                     M = st_to_erlfmt(erl_syntax:module_qualifier_argument(Name)),
+%%                     Name1 = erl_syntax:module_qualifier_body(Name),
+%%                     %% TODO: can we preserve AAnno somehow, if it is nonempty?
+%%                     _AAnno = erl_syntax:get_pos(Name1),
+%%                     F = st_to_erlfmt(erl_syntax:arity_qualifier_body(Name1)),
+%%                     A = st_to_erlfmt(erl_syntax:arity_qualifier_argument(Name1)),
+%%                     {'fun', Pos, {function, FAnno, M, F, A}}
+%%             end;
+%%         binary_field ->
+%%             Types0 = lists:map(
+%%                 fun(E) ->
+%%                     case erl_syntax:type(E) of
+%%                         size_qualifier ->
+%%                             A = erl_syntax:size_qualifier_body(E),
+%%                             I = erl_syntax:size_qualifier_argument(E),
+%%                             RAnno = erl_syntax:get_pos(E),
+%%                             {remote, RAnno, st_to_erlfmt(A), st_to_erlfmt(I)};
+%%                         _ ->
+%%                             st_to_erlfmt(E)
+%%                     end
+%%                 end,
+%%                 erl_syntax:binary_field_types(Node)
+%%             ),
+%%             Types =
+%%                 case Types0 of
+%%                     [] -> default;
+%%                     _ -> Types0
+%%                 end,
+%%             Body = erl_syntax:binary_field_body(Node),
+%%             case erl_syntax:type(Body) of
+%%                 size_qualifier ->
+%%                     Expr = st_to_erlfmt(erl_syntax:size_qualifier_body(Body)),
+%%                     Size = st_to_erlfmt(erl_syntax:size_qualifier_argument(Body)),
+%%                     {bin_element, Pos, Expr, Size, Types};
+%%                 _ ->
+%%                     {bin_element, Pos, st_to_erlfmt(Body), default, Types}
+%%             end;
+%%         macro ->
+%%             case st_subtrees_to_erlfmt(Node) of
+%%                 [[Name]] ->
+%%                     {macro_call, Pos, Name, none};
+%%                 [[Name], Args] ->
+%%                     {macro_call, Pos, Name, Args}
+%%             end;
+%%         type_application ->
+%%             [[Name], Args] = st_subtrees_to_erlfmt(Node),
+%%             case Name of
+%%                 {remote, NPos, M, N} ->
+%%                     exit(remote_type),
+%%                     {remote, NPos, [M, N, Args]};
+%%                 _ ->
+%%                     exit({local_type, Name}),
+%%                     {call, Pos, Name, Args}
+%%             end;
+%%         user_type_application ->
+%%             exit({user_type, Node}),
+%%             [[Name], Args] = st_subtrees_to_erlfmt(Node),
+%%             {call, Pos, Name, Args};
+%%         annotated_type ->
+%%             [[Name], [Type]] = st_subtrees_to_erlfmt(Node),
+%%             {op, Pos, '::', Name, Type};
+%%         typed_record_field ->
+%%             [[Body], [Type]] = st_subtrees_to_erlfmt(Node),
+%%             {op, Pos, '::', Body, Type};
+%%         %% for expressions with clauses we cannot first revert the clauses
+%%         %% separately, because the revert of the expression looks at the
+%%         %% clauses and crashes if they are on erlfmt format
+%%         if_expr ->
+%%             {'if', Pos, [
+%%                 st_clause_to_erlfmt(C, 'if')
+%%                 || C <- erl_syntax:if_expr_clauses(Node)
+%%             ]};
+%%         case_expr ->
+%%             {'case', Pos, st_to_erlfmt(erl_syntax:case_expr_argument(Node)), [
+%%                 st_clause_to_erlfmt(C, 'case')
+%%                 || C <- erl_syntax:case_expr_clauses(Node)
+%%             ]};
+%%         receive_expr ->
+%%             Clauses = [
+%%                 st_clause_to_erlfmt(C, 'case')
+%%                 || C <- erl_syntax:receive_expr_clauses(Node)
+%%             ],
+%%             case erl_syntax:receive_expr_timeout(Node) of
+%%                 none ->
+%%                     {'receive', Pos, Clauses};
+%%                 Timeout ->
+%%                     TBody = [
+%%                         st_to_erlfmt(E)
+%%                         || E <- erl_syntax:receive_expr_action(Node)
+%%                     ],
+%%                     {'receive', Pos, Clauses, st_to_erlfmt(Timeout), TBody}
+%%             end;
+%%         try_expr ->
+%%             [Body0] = erl_syntax:try_expr_body(Node),
+%%             Body = st_to_erlfmt(Body0),
+%%             Clauses = [
+%%                 st_clause_to_erlfmt(C, 'case')
+%%                 || C <- erl_syntax:try_expr_clauses(Node)
+%%             ],
+%%             Handlers = [
+%%                 st_clause_to_erlfmt(C, 'try')
+%%                 || C <- erl_syntax:try_expr_handlers(Node)
+%%             ],
+%%             After = [
+%%                 st_to_erlfmt(E)
+%%                 || E <- erl_syntax:try_expr_after(Node)
+%%             ],
+%%             CAnno = dummy_anno(),
+%%             {'try', Pos, Body, {clauses, CAnno, Clauses}, {clauses, CAnno, Handlers}, After};
+%%         comment ->
+%%             {comment, Pos, erl_syntax:comment_text(Node)};
+%%         _ ->
+%%             st_to_erlfmt_1(Node)
+%%     end.
+%%
+%% -spec st_to_erlfmt_1(_) -> any().
+%% st_to_erlfmt_1(Node) ->
+%%     %% TODO: should we convert full erl_syntax pos+annotation to erlfmt anno?
+%%     Anno = erlfmt_anno(erl_syntax:get_pos(Node)),
+%%     Anno1 =
+%%         case maps:is_key(text, Anno) of
+%%             true ->
+%%                 Anno;
+%%             false ->
+%%                 case literal_text(Node) of
+%%                     undefined -> Anno;
+%%                     Text -> Anno#{text => Text}
+%%                 end
+%%         end,
+%%     Node1 =
+%%         case st_subtrees_to_erlfmt(Node) of
+%%             [] ->
+%%                 %% leaf nodes don't need to replace the subgroups first
+%%                 erl_syntax:revert(Node);
+%%             Groups ->
+%%                 erl_syntax:revert(erl_syntax:update_tree(Node, Groups))
+%%         end,
+%%     %% certain node types are not revertible out of context; these must be
+%%     %% left as they are and will be handled when reverting the parent node
+%%     case erl_syntax:is_tree(Node1) of
+%%         true ->
+%%             %% use erl_syntax API to put back the adjusted annotation
+%%             update_tree_with_meta(Node1, Anno1),
+%%             Node1;
+%%         false ->
+%%             set_anno(Node1, Anno1)
+%%     end.
+%%
+%% -spec st_subtrees_to_erlfmt(_) -> [[any()]].
+%% st_subtrees_to_erlfmt(Node) ->
+%%     case erl_syntax:subtrees(Node) of
+%%         [] ->
+%%             [];
+%%         List ->
+%%             [
+%%                 [
+%%                     st_to_erlfmt(Subtree)
+%%                     || Subtree <- Group
+%%                 ]
+%%                 || Group <- List
+%%             ]
+%%     end.
 
-st_to_erlfmt(Node) ->
-    %% the input node might be either plain old Abstract Format tuples or
-    %% an erl_syntax abstract syntax tree; in either case we must decompose
-    %% and recurse to ensure the whole tree is converted to erlfmt tuples
-    Pos = erlfmt_anno(erl_syntax:get_pos(Node)),
-    case erl_syntax:type(Node) of
-        text ->
-            case erl_syntax:text_string(Node) of
-                "\n>>>>\n" ++ Text0 ->
-                    %% note that erlfmt only accepts raw_string as a form
-                    "\n<<<<\n" ++ RText = lists:reverse(Text0),
-                    case lists:reverse(RText) of
-                        "[[reparse]]" ++ Rest ->
-                            case erlfmt:read_nodes_string("nofile", Rest) of
-                                {ok, [Form], []} ->
-                                    Form;
-                                _ ->
-                                    {raw_string, Pos, Rest}
-                            end;
-                        "#!" ++ _ = Rest ->
-                            {shebang, Pos, Rest};
-                        Rest ->
-                            {raw_string, Pos, Rest}
-                    end;
-                "" ->
-                    %% assume this is an empty define body or similar
-                    empty
-            end;
-        attribute ->
-            Args0 = erl_syntax:attribute_arguments(Node),
-            Name = st_to_erlfmt(erl_syntax:attribute_name(Node)),
-            case {Args0, Name} of
-                {none, _} ->
-                    {attribute, Pos, Name, no_parens};
-                {_, {atom, _, T}} when T =:= type; T =:= opaque; T =:= spec; T =:= callback ->
-                    %% types and specs need special handling, particularly
-                    %% since erl_syntax currently treats them as wild attrs
-                    st_typedecl_to_erlfmt(Name, Args0, Pos);
-                _ ->
-                    Args = [st_to_erlfmt(A) || A <- Args0],
-                    {attribute, Pos, Name, Args}
-            end;
-        function ->
-            Name = erl_syntax:function_name(Node),
-            Clauses = erl_syntax:function_clauses(Node),
-            {function, Pos, [
-                st_clause_to_erlfmt(C, {name, Name})
-                || C <- Clauses
-            ]};
-        clause ->
-            st_clause_to_erlfmt(Node, 'fun');
-        nil ->
-            {list, Pos, []};
-        list ->
-            Prefix = [st_to_erlfmt(E) || E <- erl_syntax:list_prefix(Node)],
-            Elements =
-                case erl_syntax:list_suffix(Node) of
-                    none ->
-                        Prefix;
-                    Suffix ->
-                        [Last | RestRev] = lists:reverse(Prefix),
-                        Rest = lists:reverse(RestRev),
-                        %% have to figure out start and end of cons node
-                        LPos = get_anno(Last),
-                        SPos = erl_syntax:get_pos(Suffix),
-                        CPos = until(SPos, 0, LPos),
-                        Rest ++ [{cons, CPos, Last, st_to_erlfmt(Suffix)}]
-                end,
-            {list, Pos, Elements};
-        tuple ->
-            %% check for magic tuple tags
-            case erl_syntax:tuple_elements(Node) of
-                [A | Rest] ->
-                    case erl_syntax:type(A) of
-                        atom ->
-                            case erl_syntax:atom_value(A) of
-                                '*concat*' ->
-                                    concat_to_erlfmt(Node);
-                                '*stringify*' ->
-                                    [Name] = Rest,
-                                    {macro_string, Pos, st_to_erlfmt(Name)};
-                                '*when*' ->
-                                    [Expr, Guard] = Rest,
-                                    {op, Pos, 'when', st_to_erlfmt(Expr), st_to_erlfmt(Guard)};
-                                '*guard_or*' ->
-                                    Exprs = [st_to_erlfmt(E) || E <- Rest],
-                                    {guard_or, Pos, Exprs};
-                                '*guard_and*' ->
-                                    Exprs = [st_to_erlfmt(E) || E <- Rest],
-                                    {guard_and, Pos, Exprs};
-                                '*record_name*' ->
-                                    [Name] = Rest,
-                                    {record_name, Pos, st_to_erlfmt(Name)};
-                                '*named_clause*' ->
-                                    [Name, Clause] = Rest,
-                                    Name1 = st_to_erlfmt(Name),
-                                    {clause, CPos, {args, APos, Args}, Guard, Body} = st_to_erlfmt(
-                                        Clause
-                                    ),
-                                    {clause, CPos, {call, APos, Name1, Args}, Guard, Body};
-                                '*...*' when Rest =:= [] ->
-                                    {'...', Pos};
-                                '*exprs*' ->
-                                    Exprs = [st_to_erlfmt(E) || E <- Rest],
-                                    {exprs, Pos, Exprs};
-                                '*body*' ->
-                                    Exprs = [st_to_erlfmt(E) || E <- Rest],
-                                    {body, Pos, Exprs};
-                                '*args*' ->
-                                    Exprs = [st_to_erlfmt(E) || E <- Rest],
-                                    {args, Pos, Exprs};
-                                _ ->
-                                    st_to_erlfmt_1(Node)
-                            end;
-                        _ ->
-                            st_to_erlfmt_1(Node)
-                    end;
-                _ ->
-                    st_to_erlfmt_1(Node)
-            end;
-        match_expr ->
-            [[Left], [Right]] = st_subtrees_to_erlfmt(Node),
-            {op, Pos, '=', Left, Right};
-        'catch_expr' ->
-            [[Expr]] = st_subtrees_to_erlfmt(Node),
-            {op, Pos, 'catch', Expr};
-        record_field ->
-            case st_subtrees_to_erlfmt(Node) of
-                [[Name]] ->
-                    {record_field, Pos, Name};
-                [[Name], [Value]] ->
-                    {record_field, Pos, Name, Value}
-            end;
-        record_expr ->
-            case st_subtrees_to_erlfmt(Node) of
-                [[Type], Fields] ->
-                    {record, Pos, Type, Fields};
-                [[Expr], [Type], Fields] ->
-                    {record, Pos, Expr, Type, Fields}
-            end;
-        record_access ->
-            [[Expr], [Type], [Field]] = st_subtrees_to_erlfmt(Node),
-            {record_field, Pos, Expr, Type, Field};
-        record_index_expr ->
-            [[Type], [Field]] = st_subtrees_to_erlfmt(Node),
-            {record_index, Pos, Type, Field};
-        arity_qualifier ->
-            %% this handles arity qualifiers in attributes like exports
-            [[{atom, FPos, F}], [{integer, APos, A}]] = st_subtrees_to_erlfmt(Node),
-            {op, Pos, '/', {atom, erlfmt_anno(FPos), F}, {integer, erlfmt_anno(APos), A}};
-        fun_expr ->
-            Clauses = erl_syntax:fun_expr_clauses(Node),
-            CAnno = dummy_anno(),
-            {'fun', Pos,
-                {clauses, CAnno, [
-                    st_clause_to_erlfmt(C, 'fun')
-                    || C <- Clauses
-                ]}};
-        named_fun_expr ->
-            Clauses = erl_syntax:named_fun_expr_clauses(Node),
-            Name = erl_syntax:named_fun_expr_name(Node),
-            CAnno = dummy_anno(),
-            {'fun', Pos,
-                {clauses, CAnno, [
-                    st_clause_to_erlfmt(C, {name, Name})
-                    || C <- Clauses
-                ]}};
-        implicit_fun ->
-            Name = erl_syntax:implicit_fun_name(Node),
-            FAnno = erl_syntax:get_pos(Node),
-            case erl_syntax:type(Name) of
-                arity_qualifier ->
-                    F = st_to_erlfmt(erl_syntax:arity_qualifier_body(Name)),
-                    A = st_to_erlfmt(erl_syntax:arity_qualifier_argument(Name)),
-                    {'fun', Pos, {function, FAnno, F, A}};
-                module_qualifier ->
-                    M = st_to_erlfmt(erl_syntax:module_qualifier_argument(Name)),
-                    Name1 = erl_syntax:module_qualifier_body(Name),
-                    %% TODO: can we preserve AAnno somehow, if it is nonempty?
-                    _AAnno = erl_syntax:get_pos(Name1),
-                    F = st_to_erlfmt(erl_syntax:arity_qualifier_body(Name1)),
-                    A = st_to_erlfmt(erl_syntax:arity_qualifier_argument(Name1)),
-                    {'fun', Pos, {function, FAnno, M, F, A}}
-            end;
-        binary_field ->
-            Types0 = lists:map(
-                fun(E) ->
-                    case erl_syntax:type(E) of
-                        size_qualifier ->
-                            A = erl_syntax:size_qualifier_body(E),
-                            I = erl_syntax:size_qualifier_argument(E),
-                            RAnno = erl_syntax:get_pos(E),
-                            {remote, RAnno, st_to_erlfmt(A), st_to_erlfmt(I)};
-                        _ ->
-                            st_to_erlfmt(E)
-                    end
-                end,
-                erl_syntax:binary_field_types(Node)
-            ),
-            Types =
-                case Types0 of
-                    [] -> default;
-                    _ -> Types0
-                end,
-            Body = erl_syntax:binary_field_body(Node),
-            case erl_syntax:type(Body) of
-                size_qualifier ->
-                    Expr = st_to_erlfmt(erl_syntax:size_qualifier_body(Body)),
-                    Size = st_to_erlfmt(erl_syntax:size_qualifier_argument(Body)),
-                    {bin_element, Pos, Expr, Size, Types};
-                _ ->
-                    {bin_element, Pos, st_to_erlfmt(Body), default, Types}
-            end;
-        macro ->
-            case st_subtrees_to_erlfmt(Node) of
-                [[Name]] ->
-                    {macro_call, Pos, Name, none};
-                [[Name], Args] ->
-                    {macro_call, Pos, Name, Args}
-            end;
-        type_application ->
-            [[Name], Args] = st_subtrees_to_erlfmt(Node),
-            case Name of
-                {remote, NPos, M, N} ->
-                    exit(remote_type),
-                    {remote, NPos, [M, N, Args]};
-                _ ->
-                    exit({local_type, Name}),
-                    {call, Pos, Name, Args}
-            end;
-        user_type_application ->
-            exit({user_type, Node}),
-            [[Name], Args] = st_subtrees_to_erlfmt(Node),
-            {call, Pos, Name, Args};
-        annotated_type ->
-            [[Name], [Type]] = st_subtrees_to_erlfmt(Node),
-            {op, Pos, '::', Name, Type};
-        typed_record_field ->
-            [[Body], [Type]] = st_subtrees_to_erlfmt(Node),
-            {op, Pos, '::', Body, Type};
-        %% for expressions with clauses we cannot first revert the clauses
-        %% separately, because the revert of the expression looks at the
-        %% clauses and crashes if they are on erlfmt format
-        if_expr ->
-            {'if', Pos, [
-                st_clause_to_erlfmt(C, 'if')
-                || C <- erl_syntax:if_expr_clauses(Node)
-            ]};
-        case_expr ->
-            {'case', Pos, st_to_erlfmt(erl_syntax:case_expr_argument(Node)), [
-                st_clause_to_erlfmt(C, 'case')
-                || C <- erl_syntax:case_expr_clauses(Node)
-            ]};
-        receive_expr ->
-            Clauses = [
-                st_clause_to_erlfmt(C, 'case')
-                || C <- erl_syntax:receive_expr_clauses(Node)
-            ],
-            case erl_syntax:receive_expr_timeout(Node) of
-                none ->
-                    {'receive', Pos, Clauses};
-                Timeout ->
-                    TBody = [
-                        st_to_erlfmt(E)
-                        || E <- erl_syntax:receive_expr_action(Node)
-                    ],
-                    {'receive', Pos, Clauses, st_to_erlfmt(Timeout), TBody}
-            end;
-        try_expr ->
-            [Body0] = erl_syntax:try_expr_body(Node),
-            Body = st_to_erlfmt(Body0),
-            Clauses = [
-                st_clause_to_erlfmt(C, 'case')
-                || C <- erl_syntax:try_expr_clauses(Node)
-            ],
-            Handlers = [
-                st_clause_to_erlfmt(C, 'try')
-                || C <- erl_syntax:try_expr_handlers(Node)
-            ],
-            After = [
-                st_to_erlfmt(E)
-                || E <- erl_syntax:try_expr_after(Node)
-            ],
-            CAnno = dummy_anno(),
-            {'try', Pos, Body, {clauses, CAnno, Clauses}, {clauses, CAnno, Handlers}, After};
-        comment ->
-            {comment, Pos, erl_syntax:comment_text(Node)};
-        _ ->
-            st_to_erlfmt_1(Node)
-    end.
-
--spec st_to_erlfmt_1(_) -> any().
-st_to_erlfmt_1(Node) ->
-    %% TODO: should we convert full erl_syntax pos+annotation to erlfmt anno?
-    Anno = erlfmt_anno(erl_syntax:get_pos(Node)),
-    Anno1 =
-        case maps:is_key(text, Anno) of
-            true ->
-                Anno;
-            false ->
-                case literal_text(Node) of
-                    undefined -> Anno;
-                    Text -> Anno#{text => Text}
-                end
-        end,
-    Node1 =
-        case st_subtrees_to_erlfmt(Node) of
-            [] ->
-                %% leaf nodes don't need to replace the subgroups first
-                erl_syntax:revert(Node);
-            Groups ->
-                erl_syntax:revert(erl_syntax:update_tree(Node, Groups))
-        end,
-    %% certain node types are not revertible out of context; these must be
-    %% left as they are and will be handled when reverting the parent node
-    case erl_syntax:is_tree(Node1) of
-        true ->
-            %% use erl_syntax API to put back the adjusted annotation
-            erl_syntax:set_pos(Node1, Anno1),
-            Node1;
-        false ->
-            set_anno(Node1, Anno1)
-    end.
-
--spec st_subtrees_to_erlfmt(_) -> [[any()]].
-st_subtrees_to_erlfmt(Node) ->
-    case erl_syntax:subtrees(Node) of
-        [] ->
-            [];
-        List ->
-            [
-                [
-                    st_to_erlfmt(Subtree)
-                    || Subtree <- Group
-                ]
-                || Group <- List
-            ]
-    end.
-
--spec dummy_anno() -> map().
+-spec dummy_anno() -> erl_anno:anno().
 dummy_anno() ->
-    erlfmt_anno(0).
+  erl_anno:set_generated(true, erl_anno:new({0, 1})).
 
--spec dummy_anno(atom()) -> #{'text':=string(), _=>_}.
-dummy_anno(Text) when is_atom(Text) ->
-    (erlfmt_anno(0))#{text => atom_to_list(Text)}.
-
-%% assumes that if the annotation is a map, it came from erlfmt_scan
--spec erlfmt_anno(_) -> map().
-erlfmt_anno(Map) when is_map(Map) ->
-    Map;
-erlfmt_anno(Line) ->
-    %% have to add end_location as well even if it's incorrect
-    #{
-        location => {Line, 1},
-        % TODO: improve this
-        end_location => {Line, 1}
-    }.
-
--spec concat_to_erlfmt(_) -> {'concat',_,[any()]}.
-concat_to_erlfmt(Node) ->
-    Es = [st_to_erlfmt(E) || E <- tl(erl_syntax:tuple_elements(Node))],
-    {concat, erl_syntax:get_pos(Node), Es}.
-
--spec st_clause_to_erlfmt(_,'case' | 'fun' | 'if' | 'try' | {'name',_}) -> any().
-st_clause_to_erlfmt(Clause, Kind) ->
-    %% check for when a clause is not a clause
-    case erl_syntax:type(Clause) of
-        clause ->
-            st_clause_to_erlfmt_1(Clause, Kind);
-        _ ->
-            %% presumably the "clause" is a macro call
-            %% (this discards the name part for a function clause)
-            st_to_erlfmt(Clause)
-    end.
-
--spec st_clause_to_erlfmt_1(_,'case' | 'fun' | 'if' | 'try' | {'name',_}) -> {'clause',_,_,_,[any()]}.
-st_clause_to_erlfmt_1(Clause, Kind) ->
-    Pos = erl_syntax:get_pos(Clause),
-    Head =
-        case Kind of
-            'if' ->
-                empty;
-            'case' ->
-                [Pat] = [
-                    st_to_erlfmt(P)
-                    || P <- erl_syntax:clause_patterns(Clause)
-                ],
-                Pat;
-            'try' ->
-                [Pat] = erl_syntax:clause_patterns(Clause),
-                case erl_syntax:type(Pat) of
-                    class_qualifier ->
-                        A = erl_syntax:class_qualifier_argument(Pat),
-                        B = erl_syntax:class_qualifier_body(Pat),
-                        T = erl_syntax:class_qualifier_stacktrace(Pat),
-                        Ps =
-                            case erl_syntax:type(T) of
-                                underscore -> [A, B];
-                                _ -> [A, B, T]
-                            end,
-                        %% have to figure out start and end pos for catch node
-                        CPos = erl_syntax:get_pos(Clause),
-                        PPos = until(right_pos(Ps, CPos), 0, CPos),
-                        {'catch', PPos, [st_to_erlfmt(P) || P <- Ps]};
-                    _ ->
-                        st_to_erlfmt(Pat)
-                end;
-            {name, Name0} ->
-                %% must copy the line from the individual clause
-                %% onto the name node
-                Name = set_line_from(Clause, Name0),
-                Patterns = erl_syntax:clause_patterns(Clause),
-                %% have to figure out start and end pos for call node
-                NPos = erl_syntax:get_pos(Name),
-                % add 1 for start paren
-                NPos1 = until(NPos, 1, NPos),
-                APos = until(right_pos(Patterns, NPos1), 1, NPos),
-                st_to_erlfmt(
-                    erl_syntax:set_pos(
-                        erl_syntax:application(Name, Patterns),
-                        APos
-                    )
-                );
-            'fun' ->
-                Patterns = erl_syntax:clause_patterns(Clause),
-                %% have to figure out start and end pos for args node
-                CPos = erl_syntax:get_pos(Clause),
-                % 1 for start paren
-                CPos1 = abswidth(1, CPos),
-                APos = until(right_pos(Patterns, CPos1), 1, CPos),
-                {args, APos, [st_to_erlfmt(P) || P <- Patterns]}
-        end,
-    Guard =
-        case erl_syntax:clause_guard(Clause) of
-            none -> empty;
-            G -> st_guard_to_erlfmt(G)
-        end,
-    Body = [st_to_erlfmt(E) || E <- erl_syntax:clause_body(Clause)],
-    {clause, Pos, Head, Guard, Body}.
-
--spec st_guard_to_erlfmt(_) -> any().
-st_guard_to_erlfmt(Guard) ->
-    Pos = erl_syntax:get_pos(Guard),
-    case erl_syntax:type(Guard) of
-        conjunction ->
-            {guard_and, Pos, [
-                st_guard_to_erlfmt(G)
-                || G <- erl_syntax:conjunction_body(Guard)
-            ]};
-        disjunction ->
-            {guard_or, Pos, [
-                st_guard_to_erlfmt(G)
-                || G <- erl_syntax:disjunction_body(Guard)
-            ]};
-        _ ->
-            st_to_erlfmt(Guard)
-    end.
-
--spec st_typedecl_to_erlfmt({'atom',_,'type'},[any(),...],map()) -> {'attribute',map(),{'atom',_,'type'},[{_,_,_,_,_},...]}.
-st_typedecl_to_erlfmt({atom, _, type} = Tag, [Term], Pos) ->
-    %% the argument is raw erl_parse data here, lifted to abstract form by
-    %% erl_syntax, so it first needs to be made concrete again
-    {Name, Type, Args} = erl_syntax:concrete(Term),
-    Name1 = {atom, dummy_anno(Name), Name},
-    Type1 = st_to_erlfmt(Type),
-    Args1 = [st_to_erlfmt(A) || A <- Args],
-    Def = {op, dummy_anno(), '::', {call, dummy_anno(), Name1, Args1}, Type1},
-    {attribute, Pos, Tag, [Def]}.
-
--spec set_line_from(_,_) -> any().
-set_line_from(FromNode, ToNode) ->
-    ToPos = set_line_from_1(
-        erl_syntax:get_pos(FromNode),
-        erl_syntax:get_pos(ToNode)
-    ),
-    erl_syntax:set_pos(ToNode, ToPos).
-
--spec set_line_from_1(#{'location':={_,_}, _=>_},_) -> #{'end_location':={_,_}, 'location':={_,_}, _=>_}.
-set_line_from_1(
-    #{location := {L, _}},
-    #{location := {_, C1}, end_location := {_, C2}} = ToPos
-) ->
-    ToPos#{location := {L, C1}, end_location := {L, C2}};
-set_line_from_1(#{} = FromPos, ToPos) ->
-    %% assume ToPos is not a map, so convert it
-    set_line_from_1(FromPos, erlfmt_anno(ToPos)).
-
--spec until(_,0 | 1,_) -> any().
-until(#{end_location := {L, C}}, N, ToPos) ->
-    ToPos#{end_location => {L, C + N}};
-until(_FromPos, _N, ToPos) ->
-    ToPos.
-
--spec abswidth(1,_) -> any().
-abswidth(N, #{location := {L, C}} = Pos) ->
-    Pos#{end_location => {L, C + N}};
-abswidth(_N, Pos) ->
-    Pos.
-
--spec right_pos(_,_) -> any().
-right_pos([], Default) ->
-    Default;
-right_pos(Nodes, _Default) when is_list(Nodes) ->
-    Right = lists:last(Nodes),
-    right_pos(Right, erl_syntax:get_pos(Right));
-right_pos(Node, Default) ->
-    right_pos(
-        [N || Group <- erl_syntax:subtrees(Node), N <- Group],
-        Default
-    ).
-
-%% this would be good to have as a support function in erl_syntax
--spec literal_text(_) -> any().
-literal_text(Node) ->
-    case erl_syntax:type(Node) of
-        atom -> erl_syntax:atom_literal(Node);
-        char -> erl_syntax:char_literal(Node);
-        float -> erl_syntax:float_literal(Node);
-        integer -> erl_syntax:integer_literal(Node);
-        operator -> erl_syntax:operator_literal(Node);
-        string -> erl_syntax:string_literal(Node);
-        text -> erl_syntax:text_string(Node);
-        variable -> erl_syntax:variable_literal(Node);
-        _ -> undefined
-    end.
+%% -spec dummy_anno(atom()) -> #{'text':=string(), _=>_}.
+%% dummy_anno(Text) when is_atom(Text) ->
+%%     (erlfmt_anno(0))#{text => atom_to_list(Text)}.
+%%
+%% %% assumes that if the annotation is a map, it came from erlfmt_scan
+%% -spec erlfmt_anno(_) -> map().
+%% erlfmt_anno(Map) when is_map(Map) ->
+%%     Map;
+%% erlfmt_anno(Line) ->
+%%     %% have to add end_location as well even if it's incorrect
+%%     #{
+%%         location => {Line, 1},
+%%         % TODO: improve this
+%%         end_location => {Line, 1}
+%%     }.
+%%
+%% -spec concat_to_erlfmt(_) -> {'concat',_,[any()]}.
+%% concat_to_erlfmt(Node) ->
+%%     Es = [st_to_erlfmt(E) || E <- tl(erl_syntax:tuple_elements(Node))],
+%%     {concat, erl_syntax:get_pos(Node), Es}.
+%%
+%% -spec st_clause_to_erlfmt(_,'case' | 'fun' | 'if' | 'try' | {'name',_}) -> any().
+%% st_clause_to_erlfmt(Clause, Kind) ->
+%%     %% check for when a clause is not a clause
+%%     case erl_syntax:type(Clause) of
+%%         clause ->
+%%             st_clause_to_erlfmt_1(Clause, Kind);
+%%         _ ->
+%%             %% presumably the "clause" is a macro call
+%%             %% (this discards the name part for a function clause)
+%%             st_to_erlfmt(Clause)
+%%     end.
+%%
+%% -spec st_clause_to_erlfmt_1(_,'case' | 'fun' | 'if' | 'try' | {'name',_}) -> {'clause',_,_,_,[any()]}.
+%% st_clause_to_erlfmt_1(Clause, Kind) ->
+%%     Pos = erl_syntax:get_pos(Clause),
+%%     Head =
+%%         case Kind of
+%%             'if' ->
+%%                 empty;
+%%             'case' ->
+%%                 [Pat] = [
+%%                     st_to_erlfmt(P)
+%%                     || P <- erl_syntax:clause_patterns(Clause)
+%%                 ],
+%%                 Pat;
+%%             'try' ->
+%%                 [Pat] = erl_syntax:clause_patterns(Clause),
+%%                 case erl_syntax:type(Pat) of
+%%                     class_qualifier ->
+%%                         A = erl_syntax:class_qualifier_argument(Pat),
+%%                         B = erl_syntax:class_qualifier_body(Pat),
+%%                         T = erl_syntax:class_qualifier_stacktrace(Pat),
+%%                         Ps =
+%%                             case erl_syntax:type(T) of
+%%                                 underscore -> [A, B];
+%%                                 _ -> [A, B, T]
+%%                             end,
+%%                         %% have to figure out start and end pos for catch node
+%%                         CPos = erl_syntax:get_pos(Clause),
+%%                         PPos = until(right_pos(Ps, CPos), 0, CPos),
+%%                         {'catch', PPos, [st_to_erlfmt(P) || P <- Ps]};
+%%                     _ ->
+%%                         st_to_erlfmt(Pat)
+%%                 end;
+%%             {name, Name0} ->
+%%                 %% must copy the line from the individual clause
+%%                 %% onto the name node
+%%                 Name = set_line_from(Clause, Name0),
+%%                 Patterns = erl_syntax:clause_patterns(Clause),
+%%                 %% have to figure out start and end pos for call node
+%%                 NPos = erl_syntax:get_pos(Name),
+%%                 % add 1 for start paren
+%%                 NPos1 = until(NPos, 1, NPos),
+%%                 APos = until(right_pos(Patterns, NPos1), 1, NPos),
+%%                 st_to_erlfmt(
+%%                     update_tree_with_meta(
+%%                         erl_syntax:application(Name, Patterns),
+%%                         APos
+%%                     )
+%%                 );
+%%             'fun' ->
+%%                 Patterns = erl_syntax:clause_patterns(Clause),
+%%                 %% have to figure out start and end pos for args node
+%%                 CPos = erl_syntax:get_pos(Clause),
+%%                 % 1 for start paren
+%%                 CPos1 = abswidth(1, CPos),
+%%                 APos = until(right_pos(Patterns, CPos1), 1, CPos),
+%%                 {args, APos, [st_to_erlfmt(P) || P <- Patterns]}
+%%         end,
+%%     Guard =
+%%         case erl_syntax:clause_guard(Clause) of
+%%             none -> empty;
+%%             G -> st_guard_to_erlfmt(G)
+%%         end,
+%%     Body = [st_to_erlfmt(E) || E <- erl_syntax:clause_body(Clause)],
+%%     {clause, Pos, Head, Guard, Body}.
+%%
+%% -spec st_guard_to_erlfmt(_) -> any().
+%% st_guard_to_erlfmt(Guard) ->
+%%     Pos = erl_syntax:get_pos(Guard),
+%%     case erl_syntax:type(Guard) of
+%%         conjunction ->
+%%             {guard_and, Pos, [
+%%                 st_guard_to_erlfmt(G)
+%%                 || G <- erl_syntax:conjunction_body(Guard)
+%%             ]};
+%%         disjunction ->
+%%             {guard_or, Pos, [
+%%                 st_guard_to_erlfmt(G)
+%%                 || G <- erl_syntax:disjunction_body(Guard)
+%%             ]};
+%%         _ ->
+%%             st_to_erlfmt(Guard)
+%%     end.
+%%
+%% -spec st_typedecl_to_erlfmt({'atom',_,'type'},[any(),...],map()) -> {'attribute',map(),{'atom',_,'type'},[{_,_,_,_,_},...]}.
+%% st_typedecl_to_erlfmt({atom, _, type} = Tag, [Term], Pos) ->
+%%     %% the argument is raw erl_parse data here, lifted to abstract form by
+%%     %% erl_syntax, so it first needs to be made concrete again
+%%     {Name, Type, Args} = erl_syntax:concrete(Term),
+%%     Name1 = {atom, dummy_anno(Name), Name},
+%%     Type1 = st_to_erlfmt(Type),
+%%     Args1 = [st_to_erlfmt(A) || A <- Args],
+%%     Def = {op, dummy_anno(), '::', {call, dummy_anno(), Name1, Args1}, Type1},
+%%     {attribute, Pos, Tag, [Def]}.
+%%
+%% -spec set_line_from(_,_) -> any().
+%% set_line_from(FromNode, ToNode) ->
+%%     ToPos = set_line_from_1(
+%%         erl_syntax:get_pos(FromNode),
+%%         erl_syntax:get_pos(ToNode)
+%%     ),
+%%     update_tree_with_meta(ToNode, ToPos).
+%%
+%% -spec set_line_from_1(#{'location':={_,_}, _=>_},_) -> #{'end_location':={_,_}, 'location':={_,_}, _=>_}.
+%% set_line_from_1(
+%%     #{location := {L, _}},
+%%     #{location := {_, C1}, end_location := {_, C2}} = ToPos
+%% ) ->
+%%     ToPos#{location := {L, C1}, end_location := {L, C2}};
+%% set_line_from_1(#{} = FromPos, ToPos) ->
+%%     %% assume ToPos is not a map, so convert it
+%%     set_line_from_1(FromPos, erlfmt_anno(ToPos)).
+%%
+%% -spec until(_,0 | 1,_) -> any().
+%% until(#{end_location := {L, C}}, N, ToPos) ->
+%%     ToPos#{end_location => {L, C + N}};
+%% until(_FromPos, _N, ToPos) ->
+%%     ToPos.
+%%
+%% -spec abswidth(1,_) -> any().
+%% abswidth(N, #{location := {L, C}} = Pos) ->
+%%     Pos#{end_location => {L, C + N}};
+%% abswidth(_N, Pos) ->
+%%     Pos.
+%%
+%% -spec right_pos(_,_) -> any().
+%% right_pos([], Default) ->
+%%     Default;
+%% right_pos(Nodes, _Default) when is_list(Nodes) ->
+%%     Right = lists:last(Nodes),
+%%     right_pos(Right, erl_syntax:get_pos(Right));
+%% right_pos(Node, Default) ->
+%%     right_pos(
+%%         [N || Group <- erl_syntax:subtrees(Node), N <- Group],
+%%         Default
+%%     ).
+%%
+%% %% this would be good to have as a support function in erl_syntax
+%% -spec literal_text(_) -> any().
+%% literal_text(Node) ->
+%%     case erl_syntax:type(Node) of
+%%         atom -> erl_syntax:atom_literal(Node);
+%%         char -> erl_syntax:char_literal(Node);
+%%         float -> erl_syntax:float_literal(Node);
+%%         integer -> erl_syntax:integer_literal(Node);
+%%         operator -> erl_syntax:operator_literal(Node);
+%%         string -> erl_syntax:string_literal(Node);
+%%         text -> erl_syntax:text_string(Node);
+%%         variable -> erl_syntax:variable_literal(Node);
+%%         _ -> undefined
+%%     end.
 
 %% erlfmt ast utilities
 
--spec get_anno(tuple()) -> any().
+-spec get_anno(tuple()) -> term().
 get_anno(Node) ->
     element(2, Node).
 
--spec set_anno(tuple(),map()) -> tuple().
+-spec set_anno(tuple(), term()) -> tuple().
 set_anno(Node, Loc) ->
     setelement(2, Node, Loc).
 
@@ -1242,3 +1256,37 @@ set_anno(Node, Loc) ->
 -spec erl_syntax_function_type('any_arity' | [syntax_tools()], syntax_tools()) -> syntax_tools().
 erl_syntax_function_type(Arguments, Return) ->
   apply(erl_syntax, function_type, [Arguments, Return]).
+
+%% Convert erlfmt_scan:anno to erl_syntax pos+annotation
+-spec update_tree_with_meta(syntax_tools(), erlfmt_scan:anno())
+                           -> syntax_tools().
+update_tree_with_meta(Tree, Meta) ->
+  Anno = meta_to_anno(Meta),
+  Tree2 = erl_syntax:set_pos(Tree, Anno),
+  erl_syntax:set_ann(Tree2, [{meta, Meta}]).
+
+-spec convert_meta_to_anno(erlfmt()) -> syntax_tools().
+convert_meta_to_anno(Node) ->
+  Meta = get_anno(Node),
+  Node2 = set_anno(Node, meta_to_anno(Meta)),
+  erl_syntax:set_ann(Node2, [{meta, Meta}]).
+
+-spec meta_to_anno(erlfmt_scan:anno()) -> erl_anno:anno().
+meta_to_anno(Meta) ->
+  %% Recommenting can modify the start and end locations of certain trees
+  %% see erlfmt_recomment:put_(pre|post)_comments/1
+  From =
+    case maps:is_key(pre_comments, Meta) of
+      true ->
+        maps:get(inner_location, Meta);
+      false ->
+        maps:get(location, Meta)
+    end,
+  To =
+    case maps:is_key(post_comments, Meta) of
+      true ->
+        maps:get(inner_end_location, Meta);
+      false ->
+        maps:get(end_location, Meta)
+    end,
+  erl_anno:from_term([{location, From}, {end_location, To}]).

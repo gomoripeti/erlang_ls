@@ -22,25 +22,8 @@ compare(_, _) ->
 in(#{from := FromA, to := ToA}, #{from := FromB, to := ToB}) ->
   FromA >= FromB andalso ToA =< ToB.
 
--spec range(pos() | {pos(), pos()}, poi_kind(), any(), any()) -> poi_range().
-range(Anno, _Type, _Id, _Data) when is_map(Anno) ->
-  %% Recommenting can modify the start and end locations of certain trees
-  %% see erlfmt_recomment:put_(pre|post)_comments/1
-  From =
-    case maps:is_key(pre_comments, Anno) of
-      true ->
-        maps:get(inner_location, Anno);
-      false ->
-        maps:get(location, Anno)
-    end,
-  To =
-    case maps:is_key(post_comments, Anno) of
-      true ->
-        maps:get(inner_end_location, Anno);
-      false ->
-        maps:get(end_location, Anno)
-    end,
-  #{ from => From, to => To };
+-spec range(pos() | {pos(), pos()} | erl_anno:anno(), poi_kind(), any(), any())
+   -> poi_range().
 range({{_Line, _Column} = From, {_ToLine, _ToColumn} = To}, Name, _, _Data)
   when Name =:= export;
        Name =:= export_type;
@@ -50,6 +33,11 @@ range({{_Line, _Column} = From, {_ToLine, _ToColumn} = To}, Name, _, _Data)
 range({Line, Column}, function_clause, {F, _A, _Index}, _Data) ->
   From = {Line, Column},
   To = plus(From, atom_to_string(F)),
+  #{ from => From, to => To };
+range(Anno, _Type, _Id, _Data) ->
+  From = erl_anno:location(Anno),
+  %% To = erl_anno:end_location(Anno),
+  To = proplists:get_value(end_location, erl_anno:to_term(Anno)),
   #{ from => From, to => To }.
 
 -spec plus(pos(), string()) -> pos().
