@@ -10,6 +10,7 @@
 -export([ specs_location/1
         , parse_invalid_code/1
         , underscore_macro/1
+        , function_clause_name/1
         , specs_with_record/1
         , types_with_record/1
         , types_with_types/1
@@ -82,6 +83,20 @@ underscore_macro(_Config) ->
                els_parser:parse("?_.")),
   ?assertMatch({ok, [#{id := '_', kind := macro} | _]},
                els_parser:parse("?_(ok).")),
+  ok.
+
+function_clause_name(_Config) ->
+  Text =
+    "foo(1)   -> 1;\n"
+    "'foo'(2) -> 2;\n"
+    "?FOO(3)  -> 3.",
+  ?assertMatch([ #{ id := {foo, 1, 1}
+                  , range := #{from := {1, 1}, to := {1, 4}}}
+               , #{ id := {foo, 1, 2}
+                  , range := #{from := {2, 1}, to := {2, 6}}}
+               , #{ id := {foo, 1, 3}
+                  , range := #{from := {3, 1}, to := {3, 5}}}]
+              , parse_find_pois(Text, function_clause)),
   ok.
 
 %% Issue #815

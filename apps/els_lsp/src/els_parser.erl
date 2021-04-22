@@ -399,9 +399,7 @@ function(Tree) ->
   {F, A, Args} = analyze_function(FunName, Clauses),
 
   IndexedClauses = lists:zip(lists:seq(1, length(Clauses)), Clauses),
-  %% FIXME function_clause range should be the range of the name atom however
-  %% that is not present in the clause Tree (it is in the erlfmt_parse node)
-  ClausesPOIs = [ poi( get_start_location(Clause)
+  ClausesPOIs = [ poi( erl_syntax:get_pos(function_clause_name(Clause))
                      , function_clause
                      , {F, A, I}
                      , pretty_print_clause(Clause)
@@ -455,6 +453,10 @@ function_args(Clause) ->
       || {N, P} <- lists:zip(lists:seq(1, Arity), Patterns)
     ],
   {Arity, Args}.
+
+-spec function_clause_name(tree()) -> tree().
+function_clause_name(Clause) ->
+  proplists:get_value(function_clause_name, erl_syntax:get_ann(Clause)).
 
 -spec implicit_fun(tree()) -> [poi()].
 implicit_fun(Tree) ->

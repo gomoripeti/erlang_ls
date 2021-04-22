@@ -635,9 +635,11 @@ get_function_name([]) ->
 -spec erlfmt_clause_to_st(_) -> any().
 erlfmt_clause_to_st({clause, Pos, empty, Guard, Body}) ->
     erlfmt_clause_to_st(Pos, [], Guard, Body);
-erlfmt_clause_to_st({clause, Pos, {call, _CPos, _, Args}, Guard, Body}) ->
+erlfmt_clause_to_st({clause, Pos, {call, _CPos, Name, Args}, Guard, Body}) ->
     Patterns = [erlfmt_to_st(A) || A <- Args],
-    erlfmt_clause_to_st(Pos, Patterns, Guard, Body);
+    add_ann(
+      erlfmt_clause_to_st(Pos, Patterns, Guard, Body),
+      [{function_clause_name, erlfmt_to_st(Name)}]);
 erlfmt_clause_to_st({clause, Pos, {args, _APos, Args}, Guard, Body}) ->
     Patterns = [erlfmt_to_st(A) || A <- Args],
     erlfmt_clause_to_st(Pos, Patterns, Guard, Body);
@@ -784,3 +786,7 @@ meta_to_anno(Meta) ->
         maps:get(end_location, Meta)
     end,
   erl_anno:from_term([{location, From}, {end_location, To}]).
+
+-spec add_ann(syntax_tools(), [term()]) -> syntax_tools().
+add_ann(Node, As) ->
+  erl_syntax:set_ann(Node, As ++ erl_syntax:get_ann(Node)).
