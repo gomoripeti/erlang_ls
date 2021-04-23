@@ -694,7 +694,7 @@ subtrees(Tree, macro) ->
 subtrees(Tree, record_access) ->
   NameNode = erl_syntax:record_access_field(Tree),
   [ [erl_syntax:record_access_argument(Tree)]
-  , skip_record_field_atom(NameNode)
+  , skip_redundant_atom(NameNode)
   ];
 subtrees(Tree, record_expr) ->
   Fields = erl_syntax:record_expr_fields(Tree),
@@ -704,7 +704,7 @@ subtrees(Tree, record_expr) ->
   end;
 subtrees(Tree, record_field) ->
   NameNode = erl_syntax:record_field_name(Tree),
-  [ skip_record_field_atom(NameNode)
+  [ skip_redundant_atom(NameNode)
   , case erl_syntax:record_field_value(Tree) of
       none ->
         [];
@@ -713,17 +713,17 @@ subtrees(Tree, record_field) ->
     end];
 subtrees(Tree, record_type) ->
   NameNode = erl_syntax:record_type_name(Tree),
-  [ skip_record_field_atom(NameNode)
+  [ skip_redundant_atom(NameNode)
   , erl_syntax:record_type_fields(Tree)
   ];
 subtrees(Tree, record_type_field) ->
   NameNode = erl_syntax:record_type_field_name(Tree),
-  [ skip_record_field_atom(NameNode)
+  [ skip_redundant_atom(NameNode)
   , [erl_syntax:record_type_field_type(Tree)]
   ];
 subtrees(Tree, user_type_application) ->
   NameNode = erl_syntax:user_type_application_name(Tree),
-  [ skip_record_field_atom(NameNode)
+  [ skip_redundant_atom(NameNode)
   , erl_syntax:user_type_application_arguments(Tree)
   ];
 subtrees(Tree, type_application) ->
@@ -756,11 +756,11 @@ attribute_subtrees(AttrName, [Mod])
   when AttrName =:= module;
        AttrName =:= behavior;
        AttrName =:= behaviour ->
-  [skip_record_field_atom(Mod)];
+  [skip_redundant_atom(Mod)];
 attribute_subtrees(record, [_RecordName, FieldsTuple]) ->
   [[FieldsTuple]];
 attribute_subtrees(import, [Mod, Imports]) ->
-  [ skip_record_field_atom(Mod)
+  [ skip_redundant_atom(Mod)
   , skip_function_entries(Imports) ];
 attribute_subtrees(AttrName, [Exports])
   when AttrName =:= export;
@@ -794,7 +794,7 @@ attribute_subtrees(AttrName, [ArgTuple])
   case erl_syntax:type(ArgTuple) of
     tuple ->
       [Type | Rest] = erl_syntax:tuple_elements(ArgTuple),
-      [skip_record_field_atom(Type), Rest];
+      [skip_redundant_atom(Type), Rest];
     _ ->
       [ArgTuple]
   end;
@@ -822,10 +822,11 @@ skip_function_entries(FunList) ->
       [FunList]
   end.
 
-%% Skip visiting atoms of record and record field names as they are already
-%% represented as `record_expr' or `record_field' pois
--spec skip_record_field_atom(tree()) -> [tree()].
-skip_record_field_atom(NameNode) ->
+%% Skip visiting atoms which are already represented by another POI,
+%% (for example module name or record_field)
+%% and only keep those which represent literal atom constants.
+-spec skip_redundant_atom(tree()) -> [tree()].
+skip_redundant_atom(NameNode) ->
   case erl_syntax:type(NameNode) of
      atom ->
        [];
@@ -839,9 +840,9 @@ skip_type_name_atom(NameNode) ->
     atom ->
       [];
     module_qualifier ->
-      skip_record_field_atom(erl_syntax:module_qualifier_body(NameNode))
+      skip_redundant_atom(erl_syntax:module_qualifier_body(NameNode))
         ++
-        skip_record_field_atom(erl_syntax:module_qualifier_argument(NameNode));
+        skip_redundant_atom(erl_syntax:module_qualifier_argument(NameNode));
      _ ->
        [NameNode]
    end.
